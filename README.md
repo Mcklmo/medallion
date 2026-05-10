@@ -52,3 +52,7 @@ class Extractor(ABC, ProcessingStep):
     ) -> list[OutputType]:
         pass
 ```
+
+## Developer notes
+
+User-facing example pipelines live in `/example/__init__.py`. To execute them via the `Run User Pipeline (example)` launch configuration (or directly from the CLI), the `MEDALLION_ROOT` environment variable must be set to that folder so the resolver can locate the user package.
