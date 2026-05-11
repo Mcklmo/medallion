@@ -1,6 +1,6 @@
-from medallion.base import BaseExtractor
+from medallion.base import BaseJSONExtractor
 
 
-class Extractor(BaseExtractor[list[dict]]):
+class Extractor(BaseJSONExtractor[list[dict]]):
     def extract(self) -> list[dict]:
         return [{"name": "Alice"}, {"name": "Bob"}]

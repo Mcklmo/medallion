@@ -3,7 +3,7 @@ import importlib
 import os
 import sys
 from typing import Optional
-from pydantic import BaseModel, ConfigDict  # type: ignore
+from pydantic import BaseModel, ConfigDict
 
 from medallion.base import BaseExtractor, BaseTransformer
 
@@ -52,6 +52,12 @@ class Pipeline(BaseModel):
     )
     extractor: BaseExtractor
     transformers: Optional[list[BaseTransformer]]
+
+    def get_name(self) -> str:
+        return "_".join(
+            [self.extractor.__class__.__name__]
+            + [t.__class__.__name__ for t in self.transformers or []]
+        )
 
 
 EXTRACTOR_TYPE_ASSERTION_MESSAGE = (

@@ -1,4 +1,19 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:poetry",
-    "python-envs.defaultPackageManager": "ms-python.python:poetry"
+    "python-envs.defaultPackageManager": "ms-python.python:poetry",
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true
+    },
+    "black-formatter.interpreter": [
+        "/Users/moritzmarcushonscheidt/Library/Caches/pypoetry/virtualenvs/medallion-HQejfbz2-py3.12/bin/python"
+    ],
+    "mypy-type-checker.interpreter": [
+        "/Users/moritzmarcushonscheidt/Library/Caches/pypoetry/virtualenvs/medallion-HQejfbz2-py3.12/bin/python"
+    ],
+    "mypy-type-checker.path": [
+        "/Users/moritzmarcushonscheidt/Library/Caches/pypoetry/virtualenvs/medallion-HQejfbz2-py3.12/bin/mypy"
+    ],
+    "mypy-type-checker.importStrategy": "fromEnvironment",
+    "mypy-type-checker.args": []
 }
