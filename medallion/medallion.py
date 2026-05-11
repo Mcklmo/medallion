@@ -83,5 +83,9 @@ def medallion(logger: Logger) -> None:
         i += 1
 
 
-if __name__ == "__main__":
+def main() -> None:
     medallion(create_logger())
+
+
+if __name__ == "__main__":
+    main()

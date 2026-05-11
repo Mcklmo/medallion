@@ -1,6 +1,6 @@
 [project]
 name = "medallion-pipeline"
-version = "0.1.0"
+version = "0.1.1"
 description = "A composable scraper pipeline built around the medallion architecture (bronze / silver / gold)."
 authors = [
     {name = "mcklmo", email = "m.h98@gx.net"}
@@ -30,6 +30,9 @@ dependencies = [
 Homepage = "https://github.com/Mcklmo/medallion"
 Repository = "https://github.com/Mcklmo/medallion"
 Issues = "https://github.com/Mcklmo/medallion/issues"
+
+[project.scripts]
+medallion = "medallion.medallion:main"
 
 [tool.poetry]
 packages = [{include = "medallion"}]
