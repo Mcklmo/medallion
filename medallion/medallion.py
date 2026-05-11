@@ -42,11 +42,24 @@ def medallion(logger: Logger) -> None:
     logger.info(f"Starting pipeline execution: {pipe_name}")
     i = 0
     start_time = pendulum.now().format("YYYY-MM-DD-HH-mm-ssSSS")
-    filename_output = (
-        f"{pipe_name}/{start_time}/{i}_{extractor.name}.{extractor.file_extension}"
+    filename = f"{i}_{extractor.name}.{extractor.file_extension}"
+    filename_output = f"{pipe_name}/{start_time}/{filename}"
+
+    # check a previous run for "cache" hit before running the extractor
+    dir_content = store_output.list_files_at(
+        pipe_name,
+        filename,
     )
-    output_previous = extractor.extract()
-    output_previous_bytes = extractor.write_output(output_previous)
+    if dir_content:
+        latest_file = sorted(dir_content)[-1]
+        logger.info(f"Cache hit for extractor from previous run: {latest_file}")
+        output_previous_bytes = store_output.download_file(latest_file)
+        output_previous = extractor.read_bytes(output_previous_bytes)
+    else:
+        logger.info("Cache miss for extractor, running extraction.")
+        output_previous = extractor.extract()
+        output_previous_bytes = extractor.write_output(output_previous)
+
     store_output.upload_file(
         destination_path=filename_output,
         content=output_previous_bytes,

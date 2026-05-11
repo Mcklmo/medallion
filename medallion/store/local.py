@@ -38,3 +38,24 @@ class LocalStorage(BlobStore):
         full_path = os.path.join(self.output_dir, path)
         with open(full_path, "rb") as f:
             return BytesIO(f.read())
+
+    def list_files_at(
+        self,
+        prefix: str,
+        suffix: str,
+    ) -> list[str]:
+        dir_path = os.path.join(self.output_dir, prefix)
+        if not os.path.exists(dir_path):
+            return []
+
+        files = []
+        for root, _, filenames in os.walk(dir_path):
+            for filename in filenames:
+                relative_path = os.path.relpath(
+                    os.path.join(root, filename),
+                    self.output_dir,
+                )
+                if relative_path.endswith(suffix):
+                    files.append(relative_path)
+
+        return files

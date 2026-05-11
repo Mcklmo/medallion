@@ -45,3 +45,7 @@ class BlobStore(ABC):
     @abstractmethod
     def download_file(self, path: str) -> BytesIO:
         pass
+
+    @abstractmethod
+    def list_files_at(self, prefix: str) -> list[str]:
+        pass

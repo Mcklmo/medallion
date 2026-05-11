@@ -40,6 +40,9 @@ class FakeExtractor(MockProcessingStep, BaseExtractor[list[dict]]):
     def extract(self) -> list[dict]:
         return []
 
+    def read_bytes(self, data: BytesIO) -> list[dict]:
+        return []
+
 class FakeTransformer(MockProcessingStep, BaseTransformer[list[dict], list[dict]]):
     def transform(self, data: list[dict]) -> list[dict]:
         return data

@@ -58,6 +58,10 @@ class BaseExtractor[Out](ProcessingStep[Out], ABC):
     def extract(self) -> Out:
         pass
 
+    @abstractmethod
+    def read_bytes(self, data: BytesIO) -> Out:
+        pass
+
 
 class BaseTransformer[In, Out](ProcessingStep[Out], ABC):
     @property
