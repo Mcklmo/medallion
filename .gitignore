@@ -2,3 +2,6 @@
 __pycache__/
 .env
 output/*
+dist/
+build/
+*.egg-info/

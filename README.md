@@ -1,6 +1,22 @@
 # Medallion architecture scraper pipeline
 
+![PyPI](https://img.shields.io/pypi/v/medallion-pipeline.svg)
+![License](https://img.shields.io/pypi/l/medallion-pipeline.svg)
+![Python](https://img.shields.io/pypi/pyversions/medallion-pipeline.svg)
+
 Plug and play library with batteries included for caching parser output at each step as blobs.
+
+## Installation
+
+```bash
+pip install medallion-pipeline
+```
+
+The distribution is published as `medallion-pipeline`, but the Python import name is `medallion`:
+
+```python
+from medallion import Extractor, TransformerSingle, TransformerMultiple
+```
 
 Users define scraper scripts in Python, implementing an interface as specified below.
 

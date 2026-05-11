@@ -1,18 +1,38 @@
 [project]
-name = "medallion"
+name = "medallion-pipeline"
 version = "0.1.0"
-description = ""
+description = "A composable scraper pipeline built around the medallion architecture (bronze / silver / gold)."
 authors = [
-    {name = "mcklmo",email = "m.h98@gx.net"}
+    {name = "mcklmo", email = "m.h98@gx.net"}
 ]
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+keywords = ["pipeline", "etl", "scraper", "medallion-architecture", "data-engineering"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "pydantic (>=2.13.4,<3.0.0)",
     "google-auth (>=2.52.0,<3.0.0)",
     "pendulum (>=3.2.0,<4.0.0)",
     "google-cloud-storage (>=3.10.1,<4.0.0)"
 ]
+
+[project.urls]
+Homepage = "https://github.com/Mcklmo/medallion"
+Repository = "https://github.com/Mcklmo/medallion"
+Issues = "https://github.com/Mcklmo/medallion/issues"
+
+[tool.poetry]
+packages = [{include = "medallion"}]
 
 [dependency-groups]
 dev = [
