@@ -39,6 +39,34 @@ class LocalStorage(BlobStore):
         with open(full_path, "rb") as f:
             return BytesIO(f.read())
 
+    def list_files_with_prefix(
+        self,
+        prefix: str,
+        suffix: str,
+    ) -> list[str]:
+        if not os.path.exists(self.output_dir):
+            return []
+
+        files = []
+        for entry in os.listdir(self.output_dir):
+            entry_path = os.path.join(self.output_dir, entry)
+            if not os.path.isdir(entry_path):
+                continue
+
+            if not entry.startswith(prefix):
+                continue
+
+            for root, _, filenames in os.walk(entry_path):
+                for filename in filenames:
+                    relative_path = os.path.relpath(
+                        os.path.join(root, filename),
+                        self.output_dir,
+                    )
+                    if relative_path.endswith(suffix):
+                        files.append(relative_path)
+
+        return files
+
     def list_files_at(
         self,
         prefix: str,

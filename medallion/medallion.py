@@ -46,7 +46,11 @@ def medallion(logger: Logger) -> None:
     filename_output = f"{pipe_name}/{start_time}/{filename}"
 
     # check a previous run for "cache" hit before running the extractor
-    dir_content = store_output.list_files_at(
+    dir_content = store_output.list_files_with_prefix(
+        extractor.name
+        + "_",  # underscore somewhat ensures this pipe started with exactly this extractor.
+        filename,
+    ) + store_output.list_files_at(
         pipe_name,
         filename,
     )

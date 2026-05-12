@@ -47,5 +47,9 @@ class BlobStore(ABC):
         pass
 
     @abstractmethod
+    def list_files_with_prefix(self, prefix: str) -> list[str]:
+        pass
+
+    @abstractmethod
     def list_files_at(self, prefix: str) -> list[str]:
         pass
