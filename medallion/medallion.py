@@ -53,10 +53,12 @@ def medallion(logger: Logger) -> None:
     if dir_content:
         latest_file = sorted(dir_content)[-1]
         logger.info(f"Cache hit for extractor from previous run: {latest_file}")
+
         output_previous_bytes = store_output.download_file(latest_file)
         output_previous = extractor.read_bytes(output_previous_bytes)
     else:
         logger.info("Cache miss for extractor, running extraction.")
+
         output_previous = extractor.extract()
         output_previous_bytes = extractor.write_output(output_previous)
 
@@ -68,7 +70,7 @@ def medallion(logger: Logger) -> None:
 
     for t in pipe.transformers or []:
         content_hash = compute_content_hash(output_previous_bytes)
-        cache_path = f"{content_hash}.{t.file_extension}"
+        cache_path = f"{content_hash}/{t.name}.{t.file_extension}"
 
         if store_cache.file_exists(cache_path):
             logger.info(f"Cache hit for transformer {t.name}: {cache_path}")
