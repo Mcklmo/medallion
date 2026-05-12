@@ -1,10 +1,10 @@
-# Medallion architecture scraper pipeline
+# Medallion
 
 ![PyPI](https://img.shields.io/pypi/v/medallion-pipeline.svg)
 ![License](https://img.shields.io/pypi/l/medallion-pipeline.svg)
 ![Python](https://img.shields.io/pypi/pyversions/medallion-pipeline.svg)
 
-Plug and play library with batteries included for caching parser output at each step as blobs.
+A composable scraper pipeline built around the medallion architecture (bronze / silver / gold). You define an **extractor** and a chain of **transformers**; the pipeline persists every step's output and caches transformer results by content hash, so unchanged inputs skip recomputation on re-runs.
 
 ## Installation
 
@@ -12,111 +12,140 @@ Plug and play library with batteries included for caching parser output at each 
 pip install medallion-pipeline
 ```
 
-The distribution is published as `medallion-pipeline`, but the Python import name is `medallion`:
+The distribution is published as `medallion-pipeline`; the Python import name is `medallion`. Python 3.12+ required.
+
+## Core concepts
+
+- **Extractor** — produces the initial data. Subclass [`BaseExtractor[Out]`](medallion/base.py) (or [`BaseJSONExtractor[Out]`](medallion/base.py) for JSON output) and implement `extract()` and `read_bytes()`.
+- **Transformer** — consumes the previous step's output and produces a new one. Subclass [`BaseTransformer[In, Out]`](medallion/base.py) (or [`BaseJSONTransformer`](medallion/base.py) / [`BasePydanticTransformer`](medallion/base.py)) and implement `transform()` (plus `read_bytes()` if you don't use one of the convenience bases).
+- **PipeLine** — orchestrates the chain. Persists every run's artifacts to `store_output` under a timestamped folder, and caches transformer results in `store_cache` keyed by SHA256 of the input bytes — re-runs with unchanged inputs skip the transform and reuse the cached output.
+- **Type safety** — each transformer's `input_type` must equal the prior step's `output_type`. The pipeline validates this before running (see [`medallion/resolve_classes.py`](medallion/resolve_classes.py#L81-L102)).
+
+## Quick start (programmatic)
+
+Three files. The full working version lives in [`example/`](example/).
 
 ```python
-from medallion import Extractor, TransformerSingle, TransformerMultiple
+# extract.py
+from io import BytesIO
+import json
+from medallion.base import BaseJSONExtractor
+
+class Extractor(BaseJSONExtractor[list[dict]]):
+    def extract(self) -> list[dict]:
+        return [{"name": "Alice"}, {"name": "Bob"}]
+
+    def read_bytes(self, data: BytesIO) -> list[dict]:
+        data.seek(0)
+        return json.loads(data.read().decode())
 ```
-
-Users define scraper scripts in Python, implementing an interface as specified below.
-
-The tool can be executed like:
-
-```bash
-medallion PDFExtractor NaivePDFTransformer
-```
-
-Given an `__init__.py` file either at the root of the current directory or in any folder that the environment variable `MEDALLION_ROOT` points to.
-
-Example `__init__.py`:
 
 ```python
-from .extractors import PDFExtractor
-from .transformers import NaivePDFTransformer
+# transform.py
+from medallion.base import BaseJSONTransformer
+
+class Transformer(BaseJSONTransformer[list[dict], list[dict]]):
+    def transform(self, data: list[dict]) -> list[dict]:
+        return [{"name": d["name"].upper()} for d in data]
 ```
-
-## The interfaces a user must implement
-
-The class first in the pipeline must inherit from `Extractor`. All subsequent classes must inherit from either `TransformerSingle` or `TransformerMultiple`.
-
-Extractors have no input type, they obtain data from some source, like a webserver or a file drive. Transformers have an input type that matches the output type of the previous processing step (which can be either Transformer or Extractor).
-
-All of the types are user defined. `ConfigType` can be used to inject runtime configuration, s.a. a set of urls to visit, or any other custom user-based field.
 
 ```python
-class ProcessingStep:
-    def __init__(
-        self,
-        config: ConfigType|None=None,
-    ):
-        self._config=config
+# run.py
+from extract import Extractor
+from transform import Transformer
+from medallion.log import create_logger
+from medallion.pipeline import PipeLine
+from medallion.store.store import initialize_storage, must_get_env
 
-class TransformerSingle(ABC, ProcessingStep):
-    def transform_single(
-        item: InputType,
-    ) -> OutputType:
-        pass
+logger = create_logger()
+result = PipeLine(
+    extractor=Extractor(),
+    transformers=[Transformer()],
+    logger=logger,
+    store_output=initialize_storage(must_get_env("LOCAL_OUTPUT_DIR"), logger),
+    store_cache=initialize_storage(must_get_env("LOCAL_CACHE_DIR"), logger),
+).run()
 
-class TransformerMultiple(ABC, ProcessingStep):
-    def transform_multiple( 
-        items: list[InputType],
-    ) -> list[OutputType]:
-        pass
-
-class Extractor(ABC, ProcessingStep):
-    def extract(self, 
-    ) -> list[OutputType]:
-        pass
+print(result)
 ```
 
-## Developer notes
-
-User-facing example pipelines live in `/example/__init__.py`. To execute them via the `Run User Pipeline (example)` launch configuration (or directly from the CLI), the `MEDALLION_ROOT` environment variable must be set to that folder so the resolver can locate the user package.
-
-## Releasing
-
-Releases are automated: pushing a tag matching `v*` to `main` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds the package with Poetry and publishes it to PyPI via OIDC trusted publishing (no API token needed).
-
-### Cutting a release
-
-1. Bump `version` in [`pyproject.toml`](pyproject.toml) (semver: patch for bug fixes, minor for new features, major for breaking changes).
-2. Commit and push to `main`.
-3. Tag and push the tag — the tag's version *must* match `pyproject.toml`, or the workflow fails its sanity check:
-
-   ```bash
-   git tag v0.1.3
-   git push origin v0.1.3
-   ```
-
-4. PyPI rejects re-uploads of an existing version. If a release ships broken, bump again — don't try to overwrite.
-
-### Local build (optional, but recommended for some changes)
+Run it:
 
 ```bash
-poetry build
-ls dist/
-unzip -l dist/medallion_pipeline-*-py3-none-any.whl   # inspect contents
+export FILE_STORAGE_TYPE=local
+export LOCAL_OUTPUT_DIR=/tmp/medallion/output
+export LOCAL_CACHE_DIR=/tmp/medallion/cache
+python run.py
+# [{'name': 'ALICE'}, {'name': 'BOB'}]
 ```
 
-Worth doing before tagging when:
+Re-run the script — the logs will report `Cache hit for extractor from previous run` and `Cache hit for transformer Transformer`, and the transform is skipped.
 
-- You edited `pyproject.toml` (entry points, dependencies, classifiers, license).
-- You added non-Python files (`py.typed`, data files, templates) — Poetry can silently omit these.
-- You're unsure the package still imports cleanly.
+## Quick start (CLI)
 
-For pure code changes, skip the local build and just push + tag.
+If you'd rather wire the pipeline by class name, expose your classes from an `__init__.py` and use the `medallion` CLI:
 
-### Pre-release / dry run
-
-Push an `rc` tag first to publish to PyPI as a pre-release (won't be installed by default by `pip install medallion-pipeline`):
+```python
+# pipeline_package/__init__.py
+from .extract import Extractor
+from .transform import Transformer
+```
 
 ```bash
-git tag v0.1.3rc1
-git push origin v0.1.3rc1
+export MEDALLION_ROOT=/path/to/pipeline_package
+export FILE_STORAGE_TYPE=local
+export LOCAL_OUTPUT_DIR=/tmp/medallion/output
+export LOCAL_CACHE_DIR=/tmp/medallion/cache
+
+medallion Extractor Transformer
 ```
 
-Verify on <https://pypi.org/project/medallion-pipeline/>, then cut the real tag.
+The first positional argument is the extractor class; remaining arguments are transformers applied in order. If `MEDALLION_ROOT` is unset, the current working directory is used.
 
-### Initial PyPI trusted-publisher setup (one-time, already done)
+## Base classes
 
-For reference, if the trusted publisher ever needs to be reconfigured: <https://pypi.org/manage/account/publishing/> → pending publisher with owner `Mcklmo`, repo `medallion`, workflow `release.yml`, environment `pypi`.
+All defined in [`medallion/base.py`](medallion/base.py).
+
+| Class | Implement | File extension | Notes |
+| --- | --- | --- | --- |
+| `BaseExtractor[Out]` | `extract`, `read_bytes`, `file_extension`, `write_output` | (user-defined) | Lowest-level extractor; bring your own serialization. |
+| `BaseTransformer[In, Out]` | `transform`, `read_bytes`, `file_extension`, `write_output` | (user-defined) | Lowest-level transformer; bring your own serialization. |
+| `BaseJSONExtractor[Out]` | `extract`, `read_bytes` | `json` | JSON serialization handled. |
+| `BaseJSONTransformer[In, Out]` | `transform` | `json` | JSON serialization and `read_bytes` handled. |
+| `BasePydanticTransformer[In, Out: BaseModel]` | `transform` | `json` | Serialization via `model_dump_json` / `model_validate_json`. |
+
+## Storage backends
+
+`initialize_storage` (in [`medallion/store/store.py`](medallion/store/store.py)) selects a backend from `FILE_STORAGE_TYPE`:
+
+| `FILE_STORAGE_TYPE` | Backend | Required env vars |
+| --- | --- | --- |
+| `local` | `LocalStorage` (writes to disk) | `LOCAL_OUTPUT_DIR`, `LOCAL_CACHE_DIR` |
+| `gcs` | `GCStorage` (Google Cloud Storage) | `GCS_BUCKET`, `GOOGLE_APPLICATION_CREDENTIALS` |
+
+The pipeline takes two stores: `store_output` (every run's full artifacts) and `store_cache` (transformer-output cache). They can point at the same backend or different ones.
+
+## Output layout
+
+Every run writes one file per step under `store_output`, ordered by step index:
+
+```text
+{ExtractorName}_{TransformerName}_{…}/
+  {YYYY-MM-DD-HH-mm-ssSSS}/
+    0_{ExtractorName}.{ext}
+    1_{TransformerName}.{ext}
+    …
+```
+
+Transformer results are also written to `store_cache` keyed by the SHA256 of their input bytes:
+
+```text
+{sha256-of-input-bytes}/
+  {TransformerName}.{ext}
+```
+
+On the next run, if a transformer's input hashes to the same value, its cached output is loaded instead of recomputing.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for developer notes and the release process.

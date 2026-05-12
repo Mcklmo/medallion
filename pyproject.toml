@@ -1,6 +1,6 @@
 [project]
 name = "medallion-pipeline"
-version = "0.1.7"
+version = "0.1.8"
 description = "A composable scraper pipeline built around the medallion architecture (bronze / silver / gold)."
 authors = [
     {name = "mcklmo", email = "m.h98@gx.net"}
