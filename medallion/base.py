@@ -3,6 +3,8 @@ from io import BytesIO
 import json
 from typing import TypeVar, get_args, get_origin
 
+from pydantic import BaseModel
+
 
 def _resolve_type_arg(instance: object, base: type, index: int) -> type:
     def walk(cls: type, subs: dict) -> type | None:
@@ -102,3 +104,20 @@ class BaseJSONTransformer[In, Out](BaseTransformer[In, Out], BaseJSONStep[Out], 
 
 class BaseJSONExtractor[Out](BaseExtractor[Out], BaseJSONStep[Out], ABC):
     pass
+
+
+class BasePydanticTransformer[
+    In,
+    Out: BaseModel,
+](BaseTransformer[In, Out], ABC):
+
+    def read_bytes(self, data: BytesIO) -> Out:
+        byte_data = data.read()
+        return self.output_type.model_validate_json(byte_data)
+
+    @property
+    def file_extension(self):
+        return "json"
+
+    def write_output(self, output_data: Out) -> BytesIO:
+        return BytesIO(output_data.model_dump_json(indent=2).encode())
