@@ -1,11 +1,13 @@
 import argparse
 import importlib
+from logging import Logger
 import os
 import sys
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
 
 from medallion.base import BaseExtractor, BaseTransformer
+from medallion.pipeline import PipeLine
+from medallion.store.base import BlobStore
 
 
 def resolve_class(
@@ -46,26 +48,16 @@ def resolve_user_package() -> str:
     return name
 
 
-class Pipeline(BaseModel):
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True,
-    )
-    extractor: BaseExtractor
-    transformers: Optional[list[BaseTransformer]]
-
-    def get_name(self) -> str:
-        return "_".join(
-            [self.extractor.__class__.__name__]
-            + [t.__class__.__name__ for t in self.transformers or []]
-        )
-
-
 EXTRACTOR_TYPE_ASSERTION_MESSAGE = (
     f"First class must be of type {BaseExtractor.__name__}"
 )
 
 
-def load_classes_from_user_input() -> Pipeline:
+def load_classes_from_user_input(
+    store_output: BlobStore,
+    store_cache: BlobStore,
+    logger: Logger,
+) -> PipeLine:
     class_names = get_user_specified_class_names()
     package_name = resolve_user_package()
     classes = [resolve_class(package_name, n) for n in class_names]
@@ -77,9 +69,12 @@ def load_classes_from_user_input() -> Pipeline:
         transformers,
     )
 
-    return Pipeline(
+    return PipeLine(
         extractor=extractor,
         transformers=transformers,
+        logger=logger,
+        store_output=store_output,
+        store_cache=store_cache,
     )
 
 

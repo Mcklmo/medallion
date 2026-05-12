@@ -23,12 +23,25 @@
             "justMyCode": false
         },
         {
-            "name": "Run User Pipeline (example)",
+            "name": "CLI: Run User Pipeline (example)",
             "type": "debugpy",
             "request": "launch",
             "module": "medallion.medallion",
             "python": "${command:python.interpreterPath}",
             "args": "${input:pipelineClasses}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "MEDALLION_ROOT": "${workspaceFolder}/example"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "Code: Run User Pipeline (example)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/example/run.py",
+            "python": "${command:python.interpreterPath}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "env": {

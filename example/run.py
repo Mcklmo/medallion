@@ -1,11 +1,18 @@
-from logging import Logger
+from example.extract import Extractor
+from example.transform import Transformer
 from medallion.log import create_logger
-from medallion.resolve_classes import load_classes_from_user_input
+from medallion.pipeline import PipeLine
 from medallion.store.store import initialize_storage, must_get_env
 
 
-def medallion(logger: Logger) -> None:
-    pipe = load_classes_from_user_input(
+def main():
+    logger = create_logger()
+    result = PipeLine(
+        extractor=Extractor(),
+        transformers=[
+            Transformer(),
+        ],
+        logger=logger,
         store_output=initialize_storage(
             must_get_env("LOCAL_OUTPUT_DIR"),
             logger,
@@ -14,15 +21,9 @@ def medallion(logger: Logger) -> None:
             must_get_env("LOCAL_CACHE_DIR"),
             logger,
         ),
-        logger=logger,
-    )
-    output_previous = pipe.run()
+    ).run()
 
-    print(output_previous)
-
-
-def main() -> None:
-    medallion(create_logger())
+    print(result)
 
 
 if __name__ == "__main__":
