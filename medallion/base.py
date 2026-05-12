@@ -77,7 +77,7 @@ class BaseTransformer[In, Out](ProcessingStep[Out], ABC):
         pass
 
     @abstractmethod
-    def read_bytes(self, data: BytesIO) -> In:
+    def read_bytes(self, data: BytesIO) -> Out:
         pass
 
 
@@ -95,7 +95,7 @@ class BaseJSONStep[Out](ProcessingStep[Out]):
 
 
 class BaseJSONTransformer[In, Out](BaseTransformer[In, Out], BaseJSONStep[Out], ABC):
-    def read_bytes(self, data: BytesIO) -> In:
+    def read_bytes(self, data: BytesIO) -> Out:
         data.seek(0)
         return json.loads(data.read().decode())
 
