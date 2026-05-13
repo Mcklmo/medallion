@@ -1,5 +1,5 @@
-from example.extract import Extractor
-from example.transform import Transformer
+from example.basic.extract import Extractor
+from example.basic.transform import Transformer
 from medallion.log import create_logger
 from medallion.pipeline import PipeLine
 from medallion.store.store import initialize_storage, must_get_env

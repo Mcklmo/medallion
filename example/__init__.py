@@ -1,2 +1,2 @@
-from example.extract import Extractor
-from example.transform import Transformer
+from example.basic.extract import Extractor
+from example.basic.transform import Transformer

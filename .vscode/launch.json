@@ -40,7 +40,7 @@
             "name": "Code: Run User Pipeline (example)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/example/run.py",
+            "program": "${workspaceFolder}/example/basic/run.py",
             "python": "${command:python.interpreterPath}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
