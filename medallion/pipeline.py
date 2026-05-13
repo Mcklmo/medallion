@@ -116,11 +116,6 @@ class PipeLine(BaseModel):
         return output_previous
 
     def model_post_init(self, context: Any) -> None:
-        assert isinstance(
-            self.extractor,
-            BaseExtractor,
-        ), EXTRACTOR_TYPE_ASSERTION_MESSAGE
-
         previous_output_type = self.extractor.output_type
 
         for t in self.transformers or []:

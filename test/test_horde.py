@@ -1,8 +1,12 @@
+import re
 import threading
+
+from pydantic import ValidationError
+import pytest
 
 from medallion.base import BaseExtractor, BaseTransformer
 from medallion.consumer.mock import MockConsumer
-from medallion.horde import Horde
+from medallion.horde import Horde, generate_type_mismatch_message
 from test.test_resolve_classes import _make_capture_logger
 from io import BytesIO
 
@@ -21,9 +25,9 @@ class MockProcessingStep:
         return BytesIO(b"")
 
 
-class MockExtractor(MockProcessingStep, BaseExtractor[list[dict]]):
-    def extract(self) -> list[dict]:
-        return []
+class MockExtractor(MockProcessingStep, BaseExtractor[dict]):
+    def extract(self) -> dict:
+        return {}
 
     def read_bytes(self, data: BytesIO) -> list[dict]:
         return []
@@ -33,12 +37,12 @@ class MockExtractor(MockProcessingStep, BaseExtractor[list[dict]]):
         return MESSAGE_QUEUE_NAME_1
 
 
-class MockTransformer1(MockProcessingStep, BaseTransformer[list[dict], list[dict]]):
+class MockTransformer1(MockProcessingStep, BaseTransformer[dict, dict]):
     @property
     def queue_from(self):
         return MESSAGE_QUEUE_NAME_1
 
-    def transform(self, data: list[dict]) -> list[dict]:
+    def transform(self, data: dict) -> dict:
         return data
 
     def read_bytes(self, data: BytesIO) -> list[dict]:
@@ -49,12 +53,12 @@ class MockTransformer1(MockProcessingStep, BaseTransformer[list[dict], list[dict
         return MESSAGE_QUEUE_NAME_3
 
 
-class MockTransformer2(MockProcessingStep, BaseTransformer[list[dict], list[dict]]):
+class MockTransformer2(MockProcessingStep, BaseTransformer[dict, dict]):
     @property
     def queue_from(self):
         return MESSAGE_QUEUE_NAME_2
 
-    def transform(self, data: list[dict]) -> list[dict]:
+    def transform(self, data: dict) -> dict:
         return data
 
     def read_bytes(self, data: BytesIO) -> list[dict]:
@@ -100,8 +104,58 @@ def test_happy_path():
 
     out = buf.getvalue()
 
-    out == f"""Received message from queue {MESSAGE_QUEUE_NAME_1}, dispatching to 1 transformers[{MockTransformer1.name}]
-Received message from queue {MESSAGE_QUEUE_NAME_2}, dispatching to 1 transformers[{MockTransformer2.name}]
+    assert (
+        out
+        == f"""Received message from queue {MESSAGE_QUEUE_NAME_1}, dispatching to 1 transformers[{MockTransformer1.__name__}]
+Received message from queue {MESSAGE_QUEUE_NAME_2}, dispatching to 1 transformers[{MockTransformer2.__name__}]
 No transformers found for queue {MESSAGE_QUEUE_NAME_3}
 No transformers found for queue {MESSAGE_QUEUE_NAME_4}
 """
+    )
+
+
+class MockTransformer3(MockProcessingStep, BaseTransformer[int, dict]):
+    @property
+    def queue_from(self):
+        return MESSAGE_QUEUE_NAME_1
+
+    def transform(self, data: dict) -> dict:
+        return data
+
+    def read_bytes(self, data: BytesIO) -> list[dict]:
+        return []
+
+    @property
+    def queue_to(self):
+        return MESSAGE_QUEUE_NAME_4
+
+
+def test_transformer_type_mismatch():
+    logger, buf = _make_capture_logger()
+    consumer = MockConsumer(
+        messages=[
+            (
+                b"data1",
+                MESSAGE_QUEUE_NAME_1,
+            ),
+        ]
+    )
+    with pytest.raises(
+        ValidationError,
+        match=re.escape(
+            generate_type_mismatch_message(
+                MockExtractor(),
+                MockTransformer3(),
+            )
+        ),
+    ):
+        _ = Horde(
+            message_consumer=consumer,
+            logger=logger,
+            transformers=[
+                MockTransformer3(),
+            ],
+            extractors=[
+                MockExtractor(),
+            ],
+        )

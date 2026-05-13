@@ -8,6 +8,13 @@ import threading
 from logging import Logger
 
 
+def generate_type_mismatch_message(
+    extractor: BaseExtractor,
+    t: BaseTransformer,
+) -> str:
+    return f"Type mismatch for queue[{extractor.queue_to}]: Previous step outputs {extractor.output_type}, but transformer {t.name} expects {t.input_type}"
+
+
 class Horde(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -109,6 +116,16 @@ class Horde(BaseModel):
                 [],
             ).append(transformer)
 
+        # validate that types match for each queue
+        self.validate_processor_types(
+            self.extractors,
+            queue_to_transformers,
+        )
+        self.validate_processor_types(
+            self.transformers,
+            queue_to_transformers,
+        )
+
         self.queue_to_transformers = queue_to_transformers
 
         max_fanout = max(
@@ -121,3 +138,18 @@ class Horde(BaseModel):
         self.transformer_executor = ThreadPoolExecutor(
             max_workers=self.max_concurrent_messages * max_fanout,
         )
+
+    def validate_processor_types(
+        self,
+        processors: list[BaseExtractor | BaseTransformer],
+        queue_to_transformers: dict[str, list[BaseTransformer]],
+    ) -> None:
+        for extractor in processors:
+            queue_transformers = queue_to_transformers.get(extractor.queue_to, [])
+            for t in queue_transformers:
+                assert (
+                    t.input_type == extractor.output_type
+                ), generate_type_mismatch_message(
+                    extractor,
+                    t,
+                )
