@@ -2,7 +2,9 @@ import logging
 import os
 import sys
 from io import StringIO
+from pydantic import ValidationError
 import pytest
+from medallion.base import BaseExtractor
 from medallion.pipeline import EXTRACTOR_TYPE_ASSERTION_MESSAGE
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,7 +27,9 @@ def _make_capture_logger() -> tuple[logging.Logger, StringIO]:
 
 _NULL_LOGGER = logging.getLogger("test-null")
 
-PACKAGE_BODY = """from medallion.base import BaseExtractor, BaseTransformer
+MESSAGE_QUEUE_NAME_1 = "queue1"
+
+PACKAGE_BODY = f"""from medallion.base import BaseExtractor, BaseTransformer
 from io import BytesIO
 
 class MockProcessingStep:
@@ -43,12 +47,21 @@ class FakeExtractor(MockProcessingStep, BaseExtractor[list[dict]]):
     def read_bytes(self, data: BytesIO) -> list[dict]:
         return []
 
+    def queue_to(self) -> str:
+        return f"{MESSAGE_QUEUE_NAME_1}"
+
 class FakeTransformer(MockProcessingStep, BaseTransformer[list[dict], list[dict]]):
     def transform(self, data: list[dict]) -> list[dict]:
         return data
 
     def read_bytes(self, data: BytesIO) -> list[dict]:
         return []
+
+    def queue_from(self) -> str:
+        return f"{MESSAGE_QUEUE_NAME_1}"
+
+    def queue_to(self) -> str:
+        return "some_other_queue"
 """
 
 
@@ -113,7 +126,10 @@ def test_no_args(monkeypatch):
 
 def test_transformer_only_should_fail(user_package, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["medallion", "FakeTransformer"])
-    with pytest.raises(AssertionError, match=EXTRACTOR_TYPE_ASSERTION_MESSAGE):
+    with pytest.raises(
+        ValidationError,
+        match=f"Input should be an instance of {BaseExtractor.__name__}",
+    ):
         medallion(_NULL_LOGGER)
 
 
@@ -127,7 +143,7 @@ def test_transformer_input_type_mismatch(user_package, monkeypatch):
     (user_package / "__init__.py").write_text(PACKAGE_BODY_TYPE_MISMATCH)
     monkeypatch.setattr(sys, "argv", ["medallion", "FakeExtractor", "FakeTransformer"])
     with pytest.raises(
-        AssertionError,
+        ValidationError,
         match=r"\s*Transformer FakeTransformer expects input of type <class 'int'>,\s* but previous output is of type list\[dict\]",
     ):
         medallion(_NULL_LOGGER)

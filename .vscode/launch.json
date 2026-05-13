@@ -12,7 +12,7 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Pytest (Poetry)",
+            "name": "Test all",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
@@ -21,6 +21,22 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "justMyCode": false
+        },
+        {
+            "name": "Test specific",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "python": "${command:python.interpreterPath}",
+            "args": [
+                "--maxfail=1",
+                "--disable-warnings",
+                "-q",
+                "${input:testFile}"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false,
         },
         {
             "name": "CLI: Run User Pipeline (example)",
@@ -56,6 +72,12 @@
             "type": "promptString",
             "description": "Pipeline classes",
             "default": "Extractor Transformer"
+        },
+        {
+            "id": "testFile",
+            "type": "promptString",
+            "description": "Test file to run (relative to workspace)",
+            "default": "test/test_horde.py"
         }
     ]
 }

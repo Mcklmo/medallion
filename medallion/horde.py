@@ -1,11 +1,10 @@
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from typing import Any
-
-from medallion.base import BaseTransformer
-from medallion.pipeline import PipeLine
+from medallion.base import BaseExtractor, BaseTransformer
 from medallion.stream import Message, MessageConsumer
 from pydantic import BaseModel, ConfigDict, Field
 import signal
+import threading
 from logging import Logger
 
 
@@ -13,13 +12,16 @@ class Horde(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
-    pipelines: list[PipeLine]
+    transformers: list[BaseTransformer]
+    extractors: list[BaseExtractor]
     message_consumer: MessageConsumer
     logger: Logger
     max_concurrent_messages: int = 8
-    queue_to_transformers: dict[str, list[BaseTransformer]] = Field(init=False)
-    message_executor: ThreadPoolExecutor = Field(init=False)
-    transformer_executor: ThreadPoolExecutor = Field(init=False)
+    queue_to_transformers: dict[str, list[BaseTransformer]] = Field(
+        init=False, default_factory=dict
+    )
+    message_executor: ThreadPoolExecutor = Field(init=False, default=None)
+    transformer_executor: ThreadPoolExecutor = Field(init=False, default=None)
 
     def run(self) -> None:
         shutdown = False
@@ -29,8 +31,9 @@ class Horde(BaseModel):
             shutdown = True
             self.logger.info("Shutdown requested")
 
-        signal.signal(signal.SIGINT, handle_signal)
-        signal.signal(signal.SIGTERM, handle_signal)
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, handle_signal)
+            signal.signal(signal.SIGTERM, handle_signal)
 
         try:
             with self.message_consumer as consumer:
@@ -67,6 +70,10 @@ class Horde(BaseModel):
             self.logger.warning(f"No transformers found for queue {queue_name}")
             return
 
+        self.logger.info(
+            f"Received message from queue {queue_name}, dispatching to {len(transformers)} transformers[{', '.join(t.name for t in transformers)}]"
+        )
+
         futures = [
             self.transformer_executor.submit(
                 self._run_transformer,
@@ -96,12 +103,11 @@ class Horde(BaseModel):
     def model_post_init(self, context: Any) -> None:
         queue_to_transformers: dict[str, list[BaseTransformer]] = {}
 
-        for pipe in self.pipelines:
-            for transformer in pipe.transformers or []:
-                queue_to_transformers.setdefault(
-                    transformer.queue_from,
-                    [],
-                ).append(transformer)
+        for transformer in self.transformers:
+            queue_to_transformers.setdefault(
+                transformer.queue_from,
+                [],
+            ).append(transformer)
 
         self.queue_to_transformers = queue_to_transformers
 

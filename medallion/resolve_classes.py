@@ -3,10 +3,7 @@ import importlib
 from logging import Logger
 import os
 import sys
-from typing import Optional
-
-from medallion.base import BaseExtractor, BaseTransformer
-from medallion.pipeline import EXTRACTOR_TYPE_ASSERTION_MESSAGE, PipeLine
+from medallion.pipeline import PipeLine
 from medallion.store.base import BlobStore
 
 

@@ -8,7 +8,7 @@ class MockConsumer(MessageConsumer):
     def __init__(
         self,
         messages: Iterable[tuple[bytes, str]] = (),
-        block_when_empty: bool = False,
+        block_when_empty: bool = True,
     ):
         self._queue: queue.Queue = queue.Queue()
 
@@ -42,10 +42,17 @@ class MockConsumer(MessageConsumer):
                     return
 
     def ack(self, message):
-        pass
+        self._queue.task_done()
 
     def nack(self, message):
-        pass
+        self._queue.task_done()
+
+    def close(self) -> None:
+        self._closed = True
+
+    def wait_drained(self) -> None:
+        """Block until every put() (initial + published) has been ack/nack'd."""
+        self._queue.join()
 
     # test helper
     def push(self, data: bytes, queue_name: str) -> None:
