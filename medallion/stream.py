@@ -1,13 +1,18 @@
 from abc import ABC, abstractmethod
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Iterator, Any
 
 
 class Message(BaseModel):
     """A message received from the queue."""
 
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
     data: bytes
     queue_name: str  # populated by the consumer
+    args: dict[str, Any]
     _raw: Any  # underlying message object, needed for ack/nack
 
 
@@ -48,6 +53,10 @@ class MessageConsumer(ABC):
         self,
         data: bytes,
         queue_name: str,
+        args: dict[
+            str,
+            Any,
+        ],
     ) -> None:
         """Publish a message to the queue.
 

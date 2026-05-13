@@ -105,12 +105,20 @@ def test_happy_path():
     out = buf.getvalue()
 
     assert (
-        out
-        == f"""Received message from queue {MESSAGE_QUEUE_NAME_1}, dispatching to 1 transformers[{MockTransformer1.__name__}]
-Received message from queue {MESSAGE_QUEUE_NAME_2}, dispatching to 1 transformers[{MockTransformer2.__name__}]
-No transformers found for queue {MESSAGE_QUEUE_NAME_3}
-No transformers found for queue {MESSAGE_QUEUE_NAME_4}
-"""
+        f"Received message from queue {MESSAGE_QUEUE_NAME_1}, dispatching to 1 transformers[{MockTransformer1.__name__}]"
+        in out
+    )
+    assert (
+        f"Received message from queue {MESSAGE_QUEUE_NAME_2}, dispatching to 1 transformers[{MockTransformer2.__name__}]"
+        in out
+    )
+    assert (
+        f"Received message from queue {MESSAGE_QUEUE_NAME_3}, but did not find any transformers"
+        in out
+    )
+    assert (
+        f"Received message from queue {MESSAGE_QUEUE_NAME_4}, but did not find any transformers"
+        in out
     )
 
 

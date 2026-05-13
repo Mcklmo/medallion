@@ -64,6 +64,32 @@
                 "MEDALLION_ROOT": "${workspaceFolder}/example"
             },
             "justMyCode": false
+        },
+        {
+            "name": "Run horde (example)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/example/streaming/run.py",
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "MEDALLION_ROOT": "${workspaceFolder}/example"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "Trigger extractor (example)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/example/streaming/trigger_mock.py",
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "MEDALLION_ROOT": "${workspaceFolder}/example"
+            },
+            "justMyCode": false
         }
     ],
     "inputs": [

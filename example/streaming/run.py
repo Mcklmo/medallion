@@ -1,25 +1,26 @@
-from example.basic.extract import Extractor
-from example.basic.transform import Transformer
+from example.streaming.extract import Extractor
+from example.streaming.transform import Transformer
+from medallion.consumer.mock import MockConsumer
+from medallion.horde import Horde
 from medallion.log import create_logger
-from medallion.pipeline import PipeLine
 from medallion.store.store import initialize_storage, must_get_env
 
 
 def main():
     logger = create_logger()
-    result = PipeLine(
-        extractor=Extractor(),
-        transformers=[
-            Transformer().as_streaming(),
+    result = Horde(
+        extractors=[
+            Extractor(),
         ],
         logger=logger,
-        store_output=initialize_storage(
-            must_get_env("LOCAL_OUTPUT_DIR"),
-            logger,
-        ),
-        store_cache=initialize_storage(
-            must_get_env("LOCAL_CACHE_DIR"),
-            logger,
+        message_consumer=MockConsumer(
+            messages=[
+                (
+                    b"",
+                    {"extractor_name": Extractor.__name__},
+                    "",
+                )
+            ],
         ),
     ).run()
 

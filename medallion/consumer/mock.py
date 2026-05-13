@@ -1,5 +1,5 @@
 import queue
-from typing import Iterable
+from typing import Any, Iterable
 
 from medallion.stream import MessageConsumer, Message
 
@@ -7,7 +7,13 @@ from medallion.stream import MessageConsumer, Message
 class MockConsumer(MessageConsumer):
     def __init__(
         self,
-        messages: Iterable[tuple[bytes, str]] = (),
+        messages: Iterable[
+            tuple[
+                bytes,
+                dict[str, Any],
+                str,
+            ]
+        ] = (),
         block_when_empty: bool = True,
     ):
         self._queue: queue.Queue = queue.Queue()
@@ -34,7 +40,8 @@ class MockConsumer(MessageConsumer):
                 )
                 yield Message(
                     data=data[0],
-                    queue_name=data[1],
+                    args=data[1],
+                    queue_name=data[2],
                     _raw=None,
                 )
             except queue.Empty:
@@ -54,12 +61,16 @@ class MockConsumer(MessageConsumer):
         """Block until every put() (initial + published) has been ack/nack'd."""
         self._queue.join()
 
-    # test helper
-    def push(self, data: bytes, queue_name: str) -> None:
-        self._queue.put((data, queue_name))
-
-    def publish(self, data: bytes, queue_name: str) -> None:
+    def publish(
+        self,
+        data: bytes,
+        queue_name: str,
+        args: dict[
+            str,
+            Any,
+        ],
+    ) -> None:
         if self._closed:
             raise RuntimeError("Queue is closed")
 
-        self._queue.put((data, queue_name))
+        self._queue.put((data, args, queue_name))

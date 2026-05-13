@@ -46,7 +46,7 @@ class PipeLine(BaseModel):
             + [t.__class__.__name__ for t in self.transformers or []]
         )
 
-    def run(self) -> any:
+    def run(self) -> Any:
         extractor = self.extractor
         pipe_name = self.get_name()
         self.logger.info(f"Starting pipeline execution: {pipe_name}")

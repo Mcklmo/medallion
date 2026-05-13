@@ -5,21 +5,23 @@ from medallion.stream import Message, MessageConsumer
 from pydantic import BaseModel, ConfigDict, Field
 import signal
 import threading
+import traceback
 from logging import Logger
 
 
 def generate_type_mismatch_message(
-    extractor: BaseExtractor,
-    t: BaseTransformer,
+    previous_processor: BaseExtractor | BaseTransformer,
+    next_processor: BaseTransformer,
 ) -> str:
-    return f"Type mismatch for queue[{extractor.queue_to}]: Previous step outputs {extractor.output_type}, but transformer {t.name} expects {t.input_type}"
+    return f"Type mismatch for queue[{previous_processor.queue_to}]: \
+        Previous step produces {previous_processor.output_type}, but next step {next_processor.name} consumes {next_processor.input_type}"
 
 
 class Horde(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
-    transformers: list[BaseTransformer]
+    transformers: list[BaseTransformer] = Field(default_factory=list)
     extractors: list[BaseExtractor]
     message_consumer: MessageConsumer
     logger: Logger
@@ -65,20 +67,55 @@ class Horde(BaseModel):
         try:
             self.process_message(message)
             consumer.ack(message)
-        except Exception:
-            self.logger.exception("Failed to process message")
+        except Exception as e:
+            self.logger.exception(f"Failed to process message: {e}")
             consumer.nack(message)
 
     def process_message(self, message: Message) -> None:
         queue_name = message.queue_name
+        if not queue_name:
+            extractor_name = message.args.get("extractor_name")
+            assert (
+                extractor_name
+            ), "Received message without queue name or extractor name"
+
+            # trigger extractor run to start a flow
+            extractor = next(
+                (e for e in self.extractors if e.__class__.__name__ == extractor_name),
+                None,
+            )
+            assert extractor, f"Extractor {extractor_name} not found"
+
+            self.logger.info(
+                f"Received message for extractor[{extractor_name}], triggering extractor run"
+            )
+
+            try:
+                output_data = extractor.extract()
+            except Exception as e:
+                self.logger.exception(
+                    f"Extractor[{extractor_name}] failed: {e}\n{traceback.format_exc()}"
+                )
+                return
+
+            output_bytes = extractor.write_output(output_data)
+            self.message_consumer.publish(
+                data=output_bytes.read(),
+                queue_name=extractor.queue_to,
+                args={},
+            )
+
+            return
+
         transformers = self.queue_to_transformers.get(queue_name, [])
 
         if not transformers:
-            self.logger.warning(f"No transformers found for queue {queue_name}")
-            return
+            raise RuntimeError(
+                f"Received message from queue[{queue_name}], but did not find any transformers"
+            )
 
         self.logger.info(
-            f"Received message from queue {queue_name}, dispatching to {len(transformers)} transformers[{', '.join(t.name for t in transformers)}]"
+            f"Received message from queue[{queue_name}], dispatching to {len(transformers)} transformers[{', '.join(t.name for t in transformers)}]"
         )
 
         futures = [
@@ -105,6 +142,7 @@ class Horde(BaseModel):
         self.message_consumer.publish(
             data=output_bytes.read(),
             queue_name=transformer.queue_to,
+            args={},
         )
 
     def model_post_init(self, context: Any) -> None:
