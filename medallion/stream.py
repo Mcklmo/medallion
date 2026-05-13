@@ -31,11 +31,17 @@ class MessageConsumer(ABC):
 
     @abstractmethod
     def ack(self, message: Message) -> None:
-        """Acknowledge successful processing."""
+        """Acknowledge successful processing.
+
+        Must be safe to call concurrently from multiple threads.
+        """
 
     @abstractmethod
     def nack(self, message: Message) -> None:
-        """Reject a message so it can be redelivered."""
+        """Reject a message so it can be redelivered.
+
+        Must be safe to call concurrently from multiple threads.
+        """
 
     @abstractmethod
     def publish(
@@ -43,4 +49,7 @@ class MessageConsumer(ABC):
         data: bytes,
         queue_name: str,
     ) -> None:
-        """Publish a message to the queue."""
+        """Publish a message to the queue.
+
+        Must be safe to call concurrently from multiple threads.
+        """
