@@ -1,7 +1,7 @@
 import hashlib
 from io import BytesIO
 from logging import Logger
-from typing import Optional
+from typing import Any, Optional
 import pendulum
 from medallion.base import BaseExtractor, BaseTransformer
 from pydantic import BaseModel, ConfigDict
@@ -23,6 +23,11 @@ def compute_content_hash(content: BytesIO) -> str:
     content.seek(0)
 
     return hasher.hexdigest()
+
+
+EXTRACTOR_TYPE_ASSERTION_MESSAGE = (
+    f"First class must be of type {BaseExtractor.__name__}"
+)
 
 
 class PipeLine(BaseModel):
@@ -109,3 +114,23 @@ class PipeLine(BaseModel):
             i += 1
 
         return output_previous
+
+    def model_post_init(self, context: Any) -> None:
+        assert isinstance(
+            self.extractor,
+            BaseExtractor,
+        ), EXTRACTOR_TYPE_ASSERTION_MESSAGE
+
+        previous_output_type = self.extractor.output_type
+
+        for t in self.transformers or []:
+            assert isinstance(
+                t,
+                BaseTransformer,
+            ), f"Transformers must be of type {BaseTransformer.__name__}"
+
+            assert t.input_type == previous_output_type, f"""\
+                Transformer {t.__class__.__name__} expects input of type {t.input_type}, \
+                but previous output is of type {previous_output_type}\
+            """
+            previous_output_type = t.output_type

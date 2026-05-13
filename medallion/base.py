@@ -21,6 +21,7 @@ def _resolve_type_arg(instance: object, base: type, index: int) -> type:
                 return resolved_args[index]
 
             parent_subs = dict(zip(origin.__parameters__, resolved_args))
+
             found = walk(origin, parent_subs)
             if found is not None:
                 return found
@@ -28,11 +29,11 @@ def _resolve_type_arg(instance: object, base: type, index: int) -> type:
         return None
 
     result = walk(type(instance), {})
-    if result is None:
-        raise TypeError(
-            f"{type(instance).__name__} must subclass {base.__name__}[...] "
-            f"with type arguments"
-        )
+    assert result is not None, (
+        f"{type(instance).__name__} must subclass {base.__name__}[...] "
+        f"with type arguments"
+    )
+
     return result
 
 
@@ -40,6 +41,11 @@ class ProcessingStep[Out](ABC):
     @property
     @abstractmethod
     def file_extension(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def queue_to(self) -> str:
         pass
 
     @abstractmethod
@@ -67,12 +73,9 @@ class BaseExtractor[Out](ProcessingStep[Out], ABC):
 
 class BaseTransformer[In, Out](ProcessingStep[Out], ABC):
     @property
-    def input_type(self) -> type:
-        return _resolve_type_arg(self, BaseTransformer, 0)
-
-    @property
-    def output_type(self) -> type:
-        return _resolve_type_arg(self, BaseTransformer, 1)
+    @abstractmethod
+    def queue_from(self) -> str:
+        pass
 
     @abstractmethod
     def transform(self, data: In) -> Out:
@@ -81,6 +84,14 @@ class BaseTransformer[In, Out](ProcessingStep[Out], ABC):
     @abstractmethod
     def read_bytes(self, data: BytesIO) -> Out:
         pass
+
+    @property
+    def input_type(self) -> type:
+        return _resolve_type_arg(self, BaseTransformer, 0)
+
+    @property
+    def output_type(self) -> type:
+        return _resolve_type_arg(self, BaseTransformer, 1)
 
 
 class BaseJSONStep[Out](ProcessingStep[Out]):

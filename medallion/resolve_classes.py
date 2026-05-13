@@ -6,7 +6,7 @@ import sys
 from typing import Optional
 
 from medallion.base import BaseExtractor, BaseTransformer
-from medallion.pipeline import PipeLine
+from medallion.pipeline import EXTRACTOR_TYPE_ASSERTION_MESSAGE, PipeLine
 from medallion.store.base import BlobStore
 
 
@@ -48,11 +48,6 @@ def resolve_user_package() -> str:
     return name
 
 
-EXTRACTOR_TYPE_ASSERTION_MESSAGE = (
-    f"First class must be of type {BaseExtractor.__name__}"
-)
-
-
 def load_classes_from_user_input(
     store_output: BlobStore,
     store_cache: BlobStore,
@@ -64,11 +59,6 @@ def load_classes_from_user_input(
     extractor = classes[0]()
     transformers = [cls() for cls in classes[1:]] if len(classes) > 1 else None
 
-    validate(
-        extractor,
-        transformers,
-    )
-
     return PipeLine(
         extractor=extractor,
         transformers=transformers,
@@ -76,27 +66,3 @@ def load_classes_from_user_input(
         store_output=store_output,
         store_cache=store_cache,
     )
-
-
-def validate(
-    extractor: BaseExtractor,
-    transformers: Optional[list[BaseTransformer]],
-) -> None:
-    assert isinstance(
-        extractor,
-        BaseExtractor,
-    ), EXTRACTOR_TYPE_ASSERTION_MESSAGE
-
-    previous_output_type = extractor.output_type
-
-    for t in transformers or []:
-        assert isinstance(
-            t,
-            BaseTransformer,
-        ), f"Transformers must be of type {BaseTransformer.__name__}"
-
-        assert t.input_type == previous_output_type, f"""\
-            Transformer {t.__class__.__name__} expects input of type {t.input_type}, \
-            but previous output is of type {previous_output_type}\
-        """
-        previous_output_type = t.output_type

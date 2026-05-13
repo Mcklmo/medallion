@@ -3,7 +3,7 @@ import os
 import sys
 from io import StringIO
 import pytest
-from medallion.resolve_classes import EXTRACTOR_TYPE_ASSERTION_MESSAGE
+from medallion.pipeline import EXTRACTOR_TYPE_ASSERTION_MESSAGE
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "cmd"))
