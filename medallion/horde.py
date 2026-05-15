@@ -27,10 +27,17 @@ class Horde(BaseModel):
     logger: Logger
     max_concurrent_messages: int = 8
     queue_to_transformers: dict[str, list[BaseTransformer]] = Field(
-        init=False, default_factory=dict
+        init=False,
+        default_factory=dict,
     )
-    message_executor: ThreadPoolExecutor = Field(init=False, default=None)
-    transformer_executor: ThreadPoolExecutor = Field(init=False, default=None)
+    message_executor: ThreadPoolExecutor = Field(
+        init=False,
+        default=None,
+    )
+    transformer_executor: ThreadPoolExecutor = Field(
+        init=False,
+        default=None,
+    )
 
     def run(self) -> None:
         shutdown = False
