@@ -19,7 +19,7 @@ def resolve_class(
     return cls
 
 
-def get_user_specified_class_names() -> list[str]:
+def get_user_input() -> list[str]:
     parser = argparse.ArgumentParser(
         prog="medallion",
         description="Run a medallion scraper pipeline of user-defined classes.",
@@ -29,7 +29,14 @@ def get_user_specified_class_names() -> list[str]:
         nargs="+",
         help="Pipeline classes in order: Extractor first, then Transformers.",
     )
-    return parser.parse_args().class_names
+    parser.add_argument(
+        "--force-run-extractor",
+        action="store_true",
+        help="Whether to force run the extractor even if cache exists.",
+    )
+
+    args = parser.parse_args()
+    return args.class_names, args.force_run_extractor
 
 
 def resolve_user_package() -> str:

@@ -3,7 +3,7 @@ from io import BytesIO
 from logging import Logger
 from typing import Any, Optional
 import pendulum
-from medallion.base import BaseExtractor, BaseTransformer
+from medallion.base import BaseExtractor, BaseStreamingTransformer, BaseTransformer
 from pydantic import BaseModel, ConfigDict
 from medallion.store.base import BlobStore
 
@@ -35,7 +35,7 @@ class PipeLine(BaseModel):
         arbitrary_types_allowed=True,
     )
     extractor: BaseExtractor
-    transformers: Optional[list[BaseTransformer]]
+    transformers: Optional[list[BaseTransformer | BaseStreamingTransformer]]
     logger: Logger
     store_output: BlobStore
     store_cache: BlobStore
@@ -46,7 +46,10 @@ class PipeLine(BaseModel):
             + [t.__class__.__name__ for t in self.transformers or []]
         )
 
-    def run(self) -> Any:
+    def run(
+        self,
+        force_run_extractor: bool = False,
+    ) -> Any:
         extractor = self.extractor
         pipe_name = self.get_name()
         self.logger.info(f"Starting pipeline execution: {pipe_name}")
@@ -56,14 +59,18 @@ class PipeLine(BaseModel):
         filename_output = f"{pipe_name}/{start_time}/{filename}"
 
         # check a previous run for "cache" hit before running the extractor
-        dir_content = self.store_output.list_files_with_prefix(
-            extractor.name
-            + "_",  # underscore somewhat ensures this pipe started with exactly this extractor.
-            filename,
-        ) + self.store_output.list_files_at(
-            pipe_name,
-            filename,
-        )
+        dir_content = None
+
+        if not force_run_extractor:
+            dir_content = self.store_output.list_files_with_prefix(
+                extractor.name
+                + "_",  # underscore somewhat ensures this pipe started with exactly this extractor.
+                filename,
+            ) + self.store_output.list_files_at(
+                pipe_name,
+                filename,
+            )
+
         if dir_content:
             latest_file = sorted(dir_content)[-1]
             self.logger.info(
@@ -98,7 +105,7 @@ class PipeLine(BaseModel):
                     f"Cache miss for transformer {t.name}. Caching result at {cache_path}"
                 )
 
-                output_previous = t.transform(output_previous)
+                output_previous = t.transform_one(output_previous)
                 output_previous_bytes = t.write_output(output_previous)
 
                 self.store_cache.upload_file(
@@ -121,8 +128,8 @@ class PipeLine(BaseModel):
         for t in self.transformers or []:
             assert isinstance(
                 t,
-                BaseTransformer,
-            ), f"Transformers must be of type {BaseTransformer.__name__}"
+                (BaseTransformer, BaseStreamingTransformer),
+            ), f"Transformers must be of type {BaseTransformer.__name__} or {BaseStreamingTransformer.__name__}"
 
             assert t.input_type == previous_output_type, f"""\
                 Transformer {t.__class__.__name__} expects input of type {t.input_type}, \

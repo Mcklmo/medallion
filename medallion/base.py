@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from io import BytesIO
 import json
-from typing import TypeVar, get_args, get_origin
+from typing import Iterator, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -30,7 +30,12 @@ def _resolve_type_arg(cls: type, base: type, index: int) -> type:
             if origin is base:
                 return resolved_args[index]
 
-            parent_subs = dict(zip(origin.__parameters__, resolved_args))
+            parent_subs = dict(
+                zip(
+                    getattr(origin, "__parameters__", ()),
+                    resolved_args,
+                )
+            )
 
             found = walk(origin, parent_subs)
             if found is not None:
@@ -65,28 +70,55 @@ class ProcessingStep[Out](ABC):
         pass
 
 
-class BaseExtractor[Out](ProcessingStep[Out], ABC):
+class Writer[Out](ABC):
     @classproperty
     def output_type(cls) -> type:
-        return _resolve_type_arg(cls, BaseExtractor, 0)
-
-    @abstractmethod
-    def extract(self) -> Out:
-        pass
+        return _resolve_type_arg(cls, Writer, 0)
 
 
-class BaseTransformer[In, Out](ProcessingStep[Out], ABC):
-    @abstractmethod
-    def transform(self, data: In) -> Out:
-        pass
-
+class Reader[In](ABC):
     @classproperty
     def input_type(cls) -> type:
-        return _resolve_type_arg(cls, BaseTransformer, 0)
+        return _resolve_type_arg(cls, Reader, 0)
 
-    @classproperty
-    def output_type(cls) -> type:
-        return _resolve_type_arg(cls, BaseTransformer, 1)
+
+class BaseExtractor[Out](
+    ProcessingStep[Out],
+    Writer[Out],
+    ABC,
+):
+    @abstractmethod
+    def extract(self) -> Iterator[Out]:
+        pass
+
+
+class BaseTransformer[In, Out](
+    ProcessingStep[Out],
+    Writer[Out],
+    Reader[In],
+    ABC,
+):
+    @abstractmethod
+    def transform(self, data: Iterator[In]) -> Iterator[Out]:
+        pass
+
+
+class BaseStreamingTransformer[
+    In,
+    Out,
+](
+    ProcessingStep[Out],
+    Writer[Out],
+    Reader[In],
+    ABC,
+):
+    @abstractmethod
+    def transform_one(self, data: In) -> Out:
+        pass
+
+    def transform(self, data: Iterator[In]) -> Iterator[Out]:
+        for item in data:
+            yield self.transform_one(item)
 
 
 class BaseJSONStep[Out](ProcessingStep[Out]):
@@ -145,8 +177,25 @@ class BasePydanticTransformer[
     In,
     Out: BaseModel,
 ](
-    BaseTransformer[In, Out],
-    BasePydanticProcessingStep,
+    BaseTransformer[
+        In,
+        Out,
+    ],
+    BasePydanticProcessingStep[Out],
+    ABC,
+):
+    pass
+
+
+class BasePydanticStreamingTransformer[
+    In,
+    Out: BaseModel,
+](
+    BaseStreamingTransformer[
+        In,
+        Out,
+    ],
+    BasePydanticProcessingStep[Out],
     ABC,
 ):
     pass

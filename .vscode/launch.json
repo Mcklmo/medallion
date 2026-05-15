@@ -93,7 +93,8 @@
             "module": "medallion.medallion",
             "args": [
                 "Extractor",
-                "Transformer"
+                "Transformer",
+                "--force-run-extractor"
             ],
             "justMyCode": false
         }

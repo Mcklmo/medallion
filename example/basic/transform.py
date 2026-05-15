@@ -1,15 +1,20 @@
+from time import time
+
 from example.basic.model import Model
-from medallion.base import BasePydanticTransformer
+from medallion.base import BasePydanticStreamingTransformer
 
 
 class Transformer(
-    BasePydanticTransformer[
+    BasePydanticStreamingTransformer[
         Model,
         Model,
     ]
 ):
-    def transform(
+    def transform_one(
         self,
-        data: list[Model],
-    ) -> list[Model]:
-        return [Model(name=d.name.upper()) for d in data]
+        data: Model,
+    ) -> Model:
+        delay_seconds = 0.1
+        time.sleep(delay_seconds)
+
+        return Model(name=data.name.upper())
