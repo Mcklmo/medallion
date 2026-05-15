@@ -1,0 +1,70 @@
+apiVersion: medallion/v1
+repo:
+  name: scraper-acme
+  owner: team-data-ingest
+  description: Scrapes product listings from acme.com and widgets.com
+
+# ---------------------------------------------------------------
+# Defaults applied to all processors unless overridden per-processor.
+# ---------------------------------------------------------------
+defaults:
+  runtime:
+    cpu: 1
+    memory: 512Mi
+    timeout: 300s
+    min_instances: 0
+    max_instances: 10
+    concurrency: 10
+
+schemas:
+  - name: RawProduct
+  - name: NormalizedProduct
+
+queues:
+  - name: raw-products
+    schema: RawProduct
+  - name: normalized-products
+    schema: NormalizedProduct
+
+extractors:
+  - name: acme-products
+    class: AcmeProductExtractor
+    writes_to:
+      - raw-products
+    schedules:
+      - name: peak-hours
+        cron: "0/10 12 * * *"    
+        timezone: Europe/Copenhagen
+      - name: off-peak
+        cron: "0 0-11,13-23 * * *"  
+        timezone: Europe/Copenhagen
+    runtime:
+      # Scraping is I/O-bound and can be long-running; override defaults.
+      timeout: 1800s
+      memory: 1Gi
+      max_instances: 1 # be polite to the target site
+
+  - name: widgets-products
+    class: WidgetsProductExtractor
+    writes_to:
+      - raw-products
+    schedule:
+      cron: "30 */6 * * *"
+      timezone: Europe/Copenhagen
+
+transformers:
+  - name: normalize-products
+    class: NormalizedProductTransformer
+    reads_from: raw-products
+    writes_to:
+      - normalized-products       
+    runtime:
+      # Normalization is CPU-bound and fast; tune for throughput.
+      concurrency: 50
+      max_instances: 20
+      min_instances: 1 # keep one warm — avoids cold-start latency on bursts
+
+stores:
+  - name: bigquery-products
+    class: BigQueryProductStore
+    reads_from: normalized-products

@@ -24,7 +24,8 @@ dependencies = [
     "google-auth (>=2.52.0,<3.0.0)",
     "pendulum (>=3.2.0,<4.0.0)",
     "google-cloud-storage (>=3.10.1,<4.0.0)",
-    "beautifulsoup4 (>=4.14.3,<5.0.0)"
+    "beautifulsoup4 (>=4.14.3,<5.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)"
 ]
 
 [project.urls]
