@@ -33,7 +33,7 @@ def get_user_specified_class_names() -> list[str]:
 
 
 def resolve_user_package() -> str:
-    MEDALLION_ROOT = os.getenv("MEDALLION_ROOT") or os.getcwd()
+    MEDALLION_ROOT = os.getenv("MEDALLION_ROOT") or os.getcwd() + "/medallion"
     root = MEDALLION_ROOT
     root = os.path.abspath(root)
     init_file = os.path.join(root, "__init__.py")

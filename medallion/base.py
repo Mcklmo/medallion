@@ -40,8 +40,7 @@ def _resolve_type_arg(cls: type, base: type, index: int) -> type:
 
     result = walk(cls, {})
     assert result is not None, (
-        f"{cls.__name__} must subclass {base.__name__}[...] "
-        f"with type arguments"
+        f"{cls.__name__} must subclass {base.__name__}[...] " f"with type arguments"
     )
 
     return result
@@ -53,11 +52,6 @@ class ProcessingStep[Out](ABC):
     def file_extension(self) -> str:
         pass
 
-    @property
-    @abstractmethod
-    def queue_to(self) -> str:
-        pass
-
     @abstractmethod
     def write_output(self, output_data: Out) -> BytesIO:
         pass
@@ -65,6 +59,10 @@ class ProcessingStep[Out](ABC):
     @property
     def name(self) -> str:
         return self.__class__.__name__
+
+    @abstractmethod
+    def read_bytes(self, data: BytesIO) -> Out:
+        pass
 
 
 class BaseExtractor[Out](ProcessingStep[Out], ABC):
@@ -76,23 +74,10 @@ class BaseExtractor[Out](ProcessingStep[Out], ABC):
     def extract(self) -> Out:
         pass
 
-    @abstractmethod
-    def read_bytes(self, data: BytesIO) -> Out:
-        pass
-
 
 class BaseTransformer[In, Out](ProcessingStep[Out], ABC):
-    @property
-    @abstractmethod
-    def queue_from(self) -> str:
-        pass
-
     @abstractmethod
     def transform(self, data: In) -> Out:
-        pass
-
-    @abstractmethod
-    def read_bytes(self, data: BytesIO) -> Out:
         pass
 
     @classproperty
@@ -130,9 +115,13 @@ class BaseJSONExtractor[Out](BaseExtractor[Out], BaseJSONStep[Out], ABC):
 class BasePydanticProcessingStep[
     Out: BaseModel,
 ](ProcessingStep[Out], ABC):
-    def read_bytes(self, data: BytesIO) -> Out:
+    def read_bytes(self, data: BytesIO) -> list[Out]:
         byte_data = data.read()
-        return self.output_type.model_validate_json(byte_data)
+        result: list[Out] = []
+        for item in json.loads(byte_data):
+            result.append(self.output_type.model_validate(item))
+
+        return result
 
     def write_output(self, output_data: Out) -> BytesIO:
         return BytesIO(output_data.model_dump_json(indent=2).encode())

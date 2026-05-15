@@ -152,3 +152,53 @@ class PipelineGraph(StrictModel):
             assert (
                 transformer_class.output_type == output_schema
             ), f"Transformer {transformer_config.name} writes to queue {transformer_config.writes_to} with schema {output_schema.__name__}, but its output_type is {transformer_class.output_type.__name__}"
+
+    def get_pipeline_names(self) -> list[list[str]]:
+        """Returns list of pipelines, where each pipeline is a list of processor class names in execution order."""
+        graph: dict[
+            str,
+            GraphEntry,
+        ] = {}
+
+        class GraphEntry(BaseModel):
+            class_: str
+            writes_to: str
+            reads_from: str | None
+
+        for extractor in self.extractors:
+            graph[extractor.name] = GraphEntry(
+                class_=extractor.class_,
+                reads_from=None,
+                writes_to=extractor.writes_to,
+            )
+
+        for transformer in self.transformers:
+            graph[transformer.name] = GraphEntry(
+                class_=transformer.class_,
+                reads_from=transformer.reads_from,
+                writes_to=transformer.writes_to,
+            )
+
+        # Topologically sort the graph based on reads_from and writes_to
+        visited = set()
+        sorted_processors: list[str] = []
+
+        def visit(node_name):
+            if node_name in visited:
+                return
+
+            visited.add(node_name)
+
+            node = graph[node_name]
+            if node.reads_from is not None:
+                # Find the processor that writes to the queue this node reads from
+                for other_name, other_node in graph.items():
+                    if other_node.writes_to == node.reads_from:
+                        visit(other_name)
+
+            sorted_processors.append(node.class_)
+
+        for node_name in graph:
+            visit(node_name)
+
+        return [[cls for cls in sorted_processors]]
