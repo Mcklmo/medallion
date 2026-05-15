@@ -1,9 +1,15 @@
-from medallion.base import BaseJSONTransformer
+from example.basic.model import Model
+from medallion.base import BasePydanticTransformer
 
 
-class Transformer(BaseJSONTransformer[list[dict], list[dict]]):
+class Transformer(
+    BasePydanticTransformer[
+        Model,
+        Model,
+    ]
+):
     def transform(
         self,
-        data: list[dict],
-    ) -> list[dict]:
-        return [{"name": d["name"].upper()} for d in data]
+        data: list[Model],
+    ) -> list[Model]:
+        return [Model(name=d.name.upper()) for d in data]

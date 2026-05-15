@@ -1,13 +1,10 @@
-from io import BytesIO
-import json
-
-from medallion.base import BaseJSONExtractor
+from example.basic.model import Model
+from medallion.base import BasePydanticExtractor
 
 
-class Extractor(BaseJSONExtractor[list[dict]]):
-    def extract(self) -> list[dict]:
-        return [{"name": "Alice"}, {"name": "Bob"}]
-
-    def read_bytes(self, data: BytesIO) -> list[dict]:
-        data.seek(0)
-        return json.loads(data.read().decode())
+class Extractor(BasePydanticExtractor[Model]):
+    def extract(self) -> list[Model]:
+        return [
+            Model(name="Alice"),
+            Model(name="Bob"),
+        ]

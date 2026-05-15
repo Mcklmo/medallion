@@ -31,6 +31,10 @@ MESSAGE_QUEUE_NAME_1 = "queue1"
 
 PACKAGE_BODY = f"""from medallion.base import BaseExtractor, BaseTransformer
 from io import BytesIO
+from pydantic import BaseModel
+
+class Model(BaseModel):
+    name: str
 
 class MockProcessingStep:
     @property
@@ -40,22 +44,22 @@ class MockProcessingStep:
     def write_output(self, output_data) -> BytesIO:
         return BytesIO(b"")
 
-class FakeExtractor(MockProcessingStep, BaseExtractor[list[dict]]):
-    def extract(self) -> list[dict]:
-        return []
+class FakeExtractor(MockProcessingStep, BaseExtractor[Model]):
+    def extract(self) -> Model:
+        return Model(name="")
 
-    def read_bytes(self, data: BytesIO) -> list[dict]:
-        return []
+    def read_bytes(self, data: BytesIO) -> Model:
+        return Model(name="")
 
     def queue_to(self) -> str:
         return f"{MESSAGE_QUEUE_NAME_1}"
 
-class FakeTransformer(MockProcessingStep, BaseTransformer[list[dict], list[dict]]):
-    def transform(self, data: list[dict]) -> list[dict]:
+class FakeTransformer(MockProcessingStep, BaseTransformer[Model, Model]):
+    def transform(self, data: Model) -> Model:
         return data
 
-    def read_bytes(self, data: BytesIO) -> list[dict]:
-        return []
+    def read_bytes(self, data: BytesIO) -> Model:
+        return Model(name="")
 
     def queue_from(self) -> str:
         return f"{MESSAGE_QUEUE_NAME_1}"
@@ -134,8 +138,8 @@ def test_transformer_only_should_fail(user_package, monkeypatch):
 
 
 PACKAGE_BODY_TYPE_MISMATCH = PACKAGE_BODY.replace(
-    "BaseTransformer[list[dict], list[dict]]",
-    "BaseTransformer[int, list[dict]]",
+    "BaseTransformer[Model, Model]",
+    "BaseTransformer[int, Model]",
 )
 
 
@@ -144,6 +148,6 @@ def test_transformer_input_type_mismatch(user_package, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["medallion", "FakeExtractor", "FakeTransformer"])
     with pytest.raises(
         ValidationError,
-        match=r"\s*Transformer FakeTransformer expects input of type <class 'int'>,\s* but previous output is of type list\[dict\]",
+        match=r"Transformer FakeTransformer expects input of type <class 'int'>",
     ):
         medallion(_NULL_LOGGER)

@@ -14,7 +14,7 @@ def resolve_class(
     pkg = importlib.import_module(package_name)
     cls = getattr(pkg, class_name, None)
 
-    assert cls is not None, f"{class_name} not found in {package_name}"
+    assert cls is not None, f"{class_name} not found in {pkg.__path__}"
 
     return cls
 
@@ -33,7 +33,8 @@ def get_user_specified_class_names() -> list[str]:
 
 
 def resolve_user_package() -> str:
-    root = os.environ.get("MEDALLION_ROOT") or os.getcwd()
+    MEDALLION_ROOT = os.getenv("MEDALLION_ROOT") or os.getcwd()
+    root = MEDALLION_ROOT
     root = os.path.abspath(root)
     init_file = os.path.join(root, "__init__.py")
     assert os.path.isfile(init_file), f"No __init__.py found in {root}"
@@ -45,14 +46,13 @@ def resolve_user_package() -> str:
     return name
 
 
-def load_classes_from_user_input(
+def load_classes(
     store_output: BlobStore,
     store_cache: BlobStore,
     logger: Logger,
+    class_names: list[str],
 ) -> PipeLine:
-    class_names = get_user_specified_class_names()
-    package_name = resolve_user_package()
-    classes = [resolve_class(package_name, n) for n in class_names]
+    classes = resolve_classes_from_names(class_names)
     extractor = classes[0]()
     transformers = [cls() for cls in classes[1:]] if len(classes) > 1 else None
 
@@ -63,3 +63,16 @@ def load_classes_from_user_input(
         store_output=store_output,
         store_cache=store_cache,
     )
+
+
+def resolve_classes_from_names(class_names: list[str]) -> list[type]:
+    package_name = resolve_user_package()
+    classes = [
+        resolve_class(
+            package_name,
+            n,
+        )
+        for n in class_names
+    ]
+
+    return classes

@@ -90,6 +90,19 @@
                 "MEDALLION_ROOT": "${workspaceFolder}/example"
             },
             "justMyCode": false
+        },
+        {
+            "name": "Configure runtime (example)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/medallion/fleet/configure_runtime.py",
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "MEDALLION_ROOT": "${workspaceFolder}/example"
+            },
+            "justMyCode": false
         }
     ],
     "inputs": [

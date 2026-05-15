@@ -17,20 +17,18 @@ defaults:
     concurrency: 10
 
 schemas:
-  - name: RawProduct
-  - name: NormalizedProduct
+  - name: Model
 
 queues:
   - name: raw-products
-    schema: RawProduct
+    schema: Model
   - name: normalized-products
-    schema: NormalizedProduct
+    schema: Model
 
 extractors:
   - name: acme-products
-    class: AcmeProductExtractor
-    writes_to:
-      - raw-products
+    class: Extractor
+    writes_to: raw-products
     schedules:
       - name: peak-hours
         cron: "0/10 12 * * *"    
@@ -44,27 +42,13 @@ extractors:
       memory: 1Gi
       max_instances: 1 # be polite to the target site
 
-  - name: widgets-products
-    class: WidgetsProductExtractor
-    writes_to:
-      - raw-products
-    schedule:
-      cron: "30 */6 * * *"
-      timezone: Europe/Copenhagen
-
 transformers:
   - name: normalize-products
-    class: NormalizedProductTransformer
+    class: Transformer
     reads_from: raw-products
-    writes_to:
-      - normalized-products       
+    writes_to: normalized-products       
     runtime:
       # Normalization is CPU-bound and fast; tune for throughput.
       concurrency: 50
       max_instances: 20
       min_instances: 1 # keep one warm — avoids cold-start latency on bursts
-
-stores:
-  - name: bigquery-products
-    class: BigQueryProductStore
-    reads_from: normalized-products
