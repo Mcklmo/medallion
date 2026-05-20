@@ -1,9 +1,20 @@
-from medallion.base import BaseJSONTransformer
+import time
+
+from .model import Model
+from medallion.model.transformer import BasePydanticStreamingTransformer
 
 
-class Transformer(BaseJSONTransformer[list[dict], list[dict]]):
-    def transform(
+class Transformer(
+    BasePydanticStreamingTransformer[
+        Model,
+        Model,
+    ]
+):
+    def transform_one(
         self,
-        data: list[dict],
-    ) -> list[dict]:
-        return [{"name": d["name"].upper()} for d in data]
+        data: Model,
+    ) -> Model:
+        delay_seconds = 0.1
+        time.sleep(delay_seconds)
+
+        return Model(name=data.name.upper())

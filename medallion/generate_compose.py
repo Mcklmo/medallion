@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+"""
+Generate a docker-compose.yml for local development from a medallion config.yml.
+
+Maps the GCP deployment primitives onto local equivalents so a full processor
+graph can be run on a laptop:
+
+    Pub/Sub topics      -> Pub/Sub emulator topics (same client, same code)
+    Cloud Run services  -> one compose service per processor
+    Cloud Scheduler     -> commented cron hints (run manually in dev)
+    BigQuery store      -> medallion/run/store.py against a local sink
+
+Stores are NOT read from config.yml. One store is generated per queue
+automatically (see `stores_for_queues`). Any `stores:` block in the config is
+ignored, with a warning.
+
+Usage:
+    python generate_compose.py config.yml [-o docker-compose.yml]
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from medallion.fleet.pipeline_graph_model import (
+    EffectiveRuntime,
+    Extractor,
+    PipelineGraph,
+    Store,
+    Transformer,
+)
+
+# --------------------------------------------------------------------------- #
+# Tunables — change these to match your repo's entrypoints / conventions.
+# --------------------------------------------------------------------------- #
+
+# Entrypoint module per processor type. `python -m <module> <name>` is run.
+RUN_MODULE = {
+    "extractor": "medallion.run.extractor",
+    "transformer": "medallion.run.transformer",
+    "store": "medallion.run.store",
+}
+
+# Image build context (the repo root, where the Dockerfile lives).
+BUILD_CONTEXT = "."
+
+# Path the processor classes are imported from (design.md: ./src/ by default).
+MEDALLION_ROOT = "/app/src"
+
+# Pub/Sub emulator host:port used inside the compose network.
+EMULATOR_HOST = "pubsub:8085"
+
+# Fake GCP project id — the emulator does not care what this is, but topic /
+# subscription resource paths need *a* project, and it must match across
+# the bootstrap container and every processor.
+PROJECT_ID = "local-dev"
+
+# HTTP port extractors listen on inside the container (Cloud Run convention).
+EXTRACTOR_INTERNAL_PORT = 8080
+
+# First host port to map extractor services to; each extractor gets the next one.
+EXTRACTOR_HOST_PORT_START = 8001
+
+# If True, generate one store per *every* queue. If False, only terminal queues
+# (queues nothing reads from) get a store. "one store for each queue" reads as
+# every-queue, which is also the more useful default for local inspection.
+STORE_EVERY_QUEUE = True
+
+# Local sink the store writes to in dev. Matches the volume mount target
+# in `build_store_service` (./.medallion-data:/app/data).
+STORE_OUTPUT_DIR = "/app/data"
+STORE_FILE_STORAGE_TYPE = "local"
+
+
+# --------------------------------------------------------------------------- #
+# Config loading
+# --------------------------------------------------------------------------- #
+
+
+def load_config(path: Path) -> PipelineGraph:
+    with path.open() as fh:
+        raw = yaml.safe_load(fh)
+    ignored_stores = raw.pop("stores", None)
+    if ignored_stores:
+        names = [s.get("name") for s in ignored_stores]
+        print(
+            f"  ! Ignoring `stores:` block in config ({names}); "
+            "stores are generated automatically, one per queue.",
+            file=sys.stderr,
+        )
+    return PipelineGraph.model_validate(raw)
+
+
+# --------------------------------------------------------------------------- #
+# Naming — design.md: queues are prefixed with the repo name.
+# --------------------------------------------------------------------------- #
+
+
+def topic_name(repo: str, queue: str) -> str:
+    return f"{repo}-{queue}"
+
+
+def subscription_name(repo: str, queue: str, consumer: str) -> str:
+    # One subscription per (queue, reading processor) — design.md.
+    return f"{repo}-{queue}-{consumer}"
+
+
+# --------------------------------------------------------------------------- #
+# Store synthesis — the auto-generated stores, one per queue.
+# --------------------------------------------------------------------------- #
+
+
+def stores_for_queues(graph: PipelineGraph) -> list[Store]:
+    queues = [q.name for q in graph.queues]
+    if not STORE_EVERY_QUEUE:
+        read_queues = {t.reads_from for t in graph.transformers}
+        queues = [q for q in queues if q not in read_queues]
+    return [Store(name=f"store-{q}", class_="BaseStore", reads_from=q) for q in queues]
+
+
+# --------------------------------------------------------------------------- #
+# Service builders
+# --------------------------------------------------------------------------- #
+
+
+def base_env(extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    env = {
+        "PUBSUB_EMULATOR_HOST": EMULATOR_HOST,
+        "PUBSUB_PROJECT_ID": PROJECT_ID,
+        "MEDALLION_ROOT": MEDALLION_ROOT,
+    }
+    if extra:
+        env.update(extra)
+    return env
+
+
+def runtime_to_env(rt: EffectiveRuntime) -> dict[str, Any]:
+    """Expose the merged runtime so the processor honours concurrency / flow
+    control locally the same way Cloud Run would set it from the deploy."""
+    return {
+        "MEDALLION_CONCURRENCY": rt.concurrency,
+        "MEDALLION_MAX_INSTANCES": rt.max_instances,
+        "MEDALLION_MIN_INSTANCES": rt.min_instances,
+        "MEDALLION_TIMEOUT": rt.timeout,
+    }
+
+
+def build_extractor_service(
+    graph: PipelineGraph, repo: str, ex: Extractor, host_port: int
+) -> dict[str, Any]:
+    rt = graph.effective_runtime(ex)
+    env = base_env(runtime_to_env(rt))
+    env["EXTRACTOR_CLASS"] = ex.class_
+    env["MEDALLION_TOPIC"] = topic_name(repo, ex.writes_to)
+    svc: dict[str, Any] = {
+        "build": BUILD_CONTEXT,
+        "command": f"python -m {RUN_MODULE['extractor']}",
+        "environment": env,
+        "ports": [f"{host_port}:{EXTRACTOR_INTERNAL_PORT}"],
+        "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
+    }
+    # Schedules can't run as Cloud Scheduler locally; surface them as a hint.
+    if ex.schedules:
+        crons = "; ".join(f"{s.name}={s.cron} ({s.timezone})" for s in ex.schedules)
+        svc["labels"] = {"medallion.schedules": crons}
+    return svc
+
+
+def build_transformer_service(
+    graph: PipelineGraph, repo: str, tr: Transformer
+) -> dict[str, Any]:
+    rt = graph.effective_runtime(tr)
+    env = base_env(runtime_to_env(rt))
+    env["TRANSFORMER_CLASS"] = tr.class_
+    env["MEDALLION_SUBSCRIPTION"] = subscription_name(repo, tr.reads_from, tr.name)
+    env["MEDALLION_TOPIC"] = topic_name(repo, tr.writes_to)
+    return {
+        "build": BUILD_CONTEXT,
+        "command": f"python -m {RUN_MODULE['transformer']}",
+        "environment": env,
+        "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
+    }
+
+
+def build_store_service(graph: PipelineGraph, repo: str, st: Store) -> dict[str, Any]:
+    rt = graph.effective_runtime(st)
+    env = base_env(runtime_to_env(rt))
+    env["MEDALLION_SUBSCRIPTION"] = subscription_name(repo, st.reads_from, st.name)
+    env["LOCAL_OUTPUT_DIR"] = STORE_OUTPUT_DIR
+    env["FILE_STORAGE_TYPE"] = STORE_FILE_STORAGE_TYPE
+    return {
+        "build": BUILD_CONTEXT,
+        "command": f"python -m {RUN_MODULE['store']}",
+        "environment": env,
+        "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
+        "volumes": ["./.medallion-data:/app/data"],  # local sink persistence
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Bootstrap container — creates topics & subscriptions in the emulator.
+# --------------------------------------------------------------------------- #
+
+
+def build_bootstrap(
+    repo: str, topics: list[str], subscriptions: list[tuple[str, str]]
+) -> dict[str, Any]:
+    """A throwaway container that waits for the emulator, then creates every
+    topic and subscription via the REST API (curl). Runs to completion; the
+    processors depend on it finishing."""
+    # `$$` escapes a literal `$` for docker-compose interpolation, so the
+    # generated YAML contains `${VAR}` and the in-container shell expands it.
+    base = "$${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}"
+    lines = [
+        "set -e",
+        'echo "waiting for emulator..."',
+        f"until curl -s {base}/topics -o /dev/null; do sleep 1; done",
+    ]
+    for t in topics:
+        lines.append(
+            f'curl -s -X PUT {base}/topics/{t} -o /dev/null && echo "topic {t}"'
+        )
+    for sub, topic in subscriptions:
+        body = (
+            '{\\"topic\\": \\"projects/$${PUBSUB_PROJECT_ID}/topics/' + topic + '\\"}'
+        )
+        lines.append(
+            f"curl -s -X PUT {base}/subscriptions/{sub} "
+            f'-H "Content-Type: application/json" '
+            f'-d "{body}" -o /dev/null && echo "sub {sub}"'
+        )
+    lines.append('echo "bootstrap done"')
+    script = "\n".join(lines)
+    return {
+        "image": "curlimages/curl:8.7.1",
+        "depends_on": ["pubsub"],
+        "environment": {
+            "PUBSUB_EMULATOR_HOST": f"http://{EMULATOR_HOST}",
+            "PUBSUB_PROJECT_ID": PROJECT_ID,
+        },
+        "entrypoint": ["sh", "-c", script],
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Assembly
+# --------------------------------------------------------------------------- #
+
+
+def generate(graph: PipelineGraph) -> dict[str, Any]:
+    repo = graph.repo.name
+    queues = [q.name for q in graph.queues]
+    stores = stores_for_queues(graph)
+
+    services: dict[str, Any] = {}
+
+    # Pub/Sub emulator.
+    services["pubsub"] = {
+        "image": "gcr.io/google.com/cloudsdktool/cloud-sdk:emulators",
+        "command": (
+            "gcloud beta emulators pubsub start "
+            f"--host-port=0.0.0.0:8085 --project={PROJECT_ID}"
+        ),
+        "ports": ["8085:8085"],
+    }
+
+    # Collect topics + subscriptions for the bootstrap container.
+    topics = [topic_name(repo, q) for q in queues]
+    subscriptions: list[tuple[str, str]] = []
+    for tr in graph.transformers:
+        subscriptions.append(
+            (
+                subscription_name(repo, tr.reads_from, tr.name),
+                topic_name(repo, tr.reads_from),
+            )
+        )
+    for st in stores:
+        subscriptions.append(
+            (
+                subscription_name(repo, st.reads_from, st.name),
+                topic_name(repo, st.reads_from),
+            )
+        )
+
+    services["bootstrap"] = build_bootstrap(repo, topics, subscriptions)
+
+    # Processor services.
+    host_port = EXTRACTOR_HOST_PORT_START
+    for ex in graph.extractors:
+        services["extract-" + ex.name] = build_extractor_service(
+            graph, repo, ex, host_port
+        )
+        host_port += 1
+    for tr in graph.transformers:
+        services["transform-" + tr.name] = build_transformer_service(graph, repo, tr)
+    for st in stores:
+        services[
+            "store-" + st.name if not st.name.startswith("store-") else st.name
+        ] = build_store_service(graph, repo, st)
+
+    return {"services": services}
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("config", type=Path, help="path to config.yml")
+    ap.add_argument("-o", "--output", type=Path, default=Path("docker-compose.yml"))
+    args = ap.parse_args()
+
+    graph = load_config(args.config)
+    compose = generate(graph)
+
+    header = (
+        "# AUTO-GENERATED from {src} by generate_compose.py — do not edit by hand.\n"
+        "# Stores are synthesised (one per queue); any stores: block in the\n"
+        "# config is ignored. Edit the config or the generator, then regenerate.\n"
+    ).format(src=args.config.name)
+
+    with args.output.open("w") as fh:
+        fh.write(header)
+        yaml.safe_dump(compose, fh, sort_keys=False, default_flow_style=False)
+
+    n = len(compose["services"]) - 2  # minus pubsub + bootstrap
+    print(f"  > wrote {args.output} ({n} processor services + emulator + bootstrap)")
+
+
+if __name__ == "__main__":
+    main()

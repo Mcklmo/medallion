@@ -23,7 +23,12 @@ dependencies = [
     "pydantic (>=2.13.4,<3.0.0)",
     "google-auth (>=2.52.0,<3.0.0)",
     "pendulum (>=3.2.0,<4.0.0)",
-    "google-cloud-storage (>=3.10.1,<4.0.0)"
+    "google-cloud-storage (>=3.10.1,<4.0.0)",
+    "beautifulsoup4 (>=4.14.3,<5.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)",
+    "python-dotenv (>=1.2.2,<2.0.0)",
+    "fastapi (>=0.136.1,<0.137.0)",
+    "google-cloud-pubsub (>=2.38.0,<3.0.0)"
 ]
 
 [project.urls]
@@ -39,7 +44,9 @@ packages = [{include = "medallion"}]
 
 [dependency-groups]
 dev = [
-    "pytest (>=9.0.3,<10.0.0)"
+    "pytest (>=9.0.3,<10.0.0)",
+    "json5 (>=0.14.0,<0.15.0)",
+    "uvicorn (>=0.47.0,<0.48.0)"
 ]
 
 

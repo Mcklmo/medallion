@@ -3,11 +3,11 @@ import importlib
 from logging import Logger
 import os
 import sys
-from typing import Optional
-
-from medallion.base import BaseExtractor, BaseTransformer
+from medallion.model.extractor import BaseExtractor
+from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
 from medallion.pipeline import PipeLine
 from medallion.store.base import BlobStore
+from medallion.store.store import must_get_env
 
 
 def resolve_class(
@@ -17,12 +17,12 @@ def resolve_class(
     pkg = importlib.import_module(package_name)
     cls = getattr(pkg, class_name, None)
 
-    assert cls is not None, f"{class_name} not found in {package_name}"
+    assert cls is not None, f"{class_name} not found in {pkg.__path__}"
 
     return cls
 
 
-def get_user_specified_class_names() -> list[str]:
+def get_user_input() -> list[str]:
     parser = argparse.ArgumentParser(
         prog="medallion",
         description="Run a medallion scraper pipeline of user-defined classes.",
@@ -32,11 +32,19 @@ def get_user_specified_class_names() -> list[str]:
         nargs="+",
         help="Pipeline classes in order: Extractor first, then Transformers.",
     )
-    return parser.parse_args().class_names
+    parser.add_argument(
+        "--force-run-extractor",
+        action="store_true",
+        help="Whether to force run the extractor even if cache exists.",
+    )
+
+    args = parser.parse_args()
+    return args.class_names, args.force_run_extractor
 
 
 def resolve_user_package() -> str:
-    root = os.environ.get("MEDALLION_ROOT") or os.getcwd()
+    MEDALLION_ROOT = os.getenv("MEDALLION_ROOT") or os.getcwd() + "/medallion"
+    root = MEDALLION_ROOT
     root = os.path.abspath(root)
     init_file = os.path.join(root, "__init__.py")
     assert os.path.isfile(init_file), f"No __init__.py found in {root}"
@@ -48,26 +56,15 @@ def resolve_user_package() -> str:
     return name
 
 
-EXTRACTOR_TYPE_ASSERTION_MESSAGE = (
-    f"First class must be of type {BaseExtractor.__name__}"
-)
-
-
-def load_classes_from_user_input(
+def load_classes(
     store_output: BlobStore,
     store_cache: BlobStore,
     logger: Logger,
+    class_names: list[str],
 ) -> PipeLine:
-    class_names = get_user_specified_class_names()
-    package_name = resolve_user_package()
-    classes = [resolve_class(package_name, n) for n in class_names]
+    classes = resolve_classes_from_names(class_names)
     extractor = classes[0]()
     transformers = [cls() for cls in classes[1:]] if len(classes) > 1 else None
-
-    validate(
-        extractor,
-        transformers,
-    )
 
     return PipeLine(
         extractor=extractor,
@@ -78,25 +75,49 @@ def load_classes_from_user_input(
     )
 
 
-def validate(
-    extractor: BaseExtractor,
-    transformers: Optional[list[BaseTransformer]],
-) -> None:
+def resolve_classes_from_names(class_names: list[str]) -> list[type]:
+    package_name = resolve_user_package()
+    classes = [
+        resolve_class(
+            package_name,
+            n,
+        )
+        for n in class_names
+    ]
+
+    return classes
+
+
+def load_extractor_from_env() -> BaseExtractor:
+    processor_name = must_get_env("EXTRACTOR_CLASS")
+    processor = build_processor_from_name(processor_name)
+
     assert isinstance(
-        extractor,
+        processor,
         BaseExtractor,
-    ), EXTRACTOR_TYPE_ASSERTION_MESSAGE
+    ), f"Processor must be a {BaseExtractor.__name__}, got {type(processor).__name__}"
 
-    previous_output_type = extractor.output_type
+    return processor
 
-    for t in transformers or []:
-        assert isinstance(
-            t,
-            BaseTransformer,
-        ), f"Transformers must be of type {BaseTransformer.__name__}"
 
-        assert t.input_type == previous_output_type, f"""\
-            Transformer {t.__class__.__name__} expects input of type {t.input_type}, \
-            but previous output is of type {previous_output_type}\
-        """
-        previous_output_type = t.output_type
+def load_transformer_from_env() -> BaseTransformer | BaseStreamingTransformer:
+    transformer_name = must_get_env("TRANSFORMER_CLASS")
+    transformer = build_processor_from_name(transformer_name)
+
+    expected_types = (BaseTransformer, BaseStreamingTransformer)
+    assert isinstance(
+        transformer,
+        expected_types,
+    ), f"Transformer must be one of {expected_types}, got {type(transformer).__name__}"
+
+    return transformer
+
+
+def build_processor_from_name(processor_name: str) -> type:
+    _processors = resolve_classes_from_names([processor_name])
+
+    assert (
+        len(_processors) == 1
+    ), f"Expected exactly one processor, got {len(_processors)}"
+
+    return _processors[0]()

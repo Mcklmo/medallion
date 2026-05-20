@@ -51,3 +51,8 @@ Verify on <https://pypi.org/project/medallion-pipeline/>, then cut the real tag.
 ### Initial PyPI trusted-publisher setup (one-time, already done)
 
 For reference, if the trusted publisher ever needs to be reconfigured: <https://pypi.org/manage/account/publishing/> → pending publisher with owner `Mcklmo`, repo `medallion`, workflow `release.yml`, environment `pypi`.
+
+## Setup for Google Cloud project
+
+- [ ] Service account roles: Pubsub Admin
+- [ ] Enable PubSub API

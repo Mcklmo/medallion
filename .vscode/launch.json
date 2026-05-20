@@ -1,7 +1,4 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
@@ -12,12 +9,28 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Pytest (Poetry)",
+            "name": "Test all",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "python": "${command:python.interpreterPath}",
             "args": [],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Test specific",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "python": "${command:python.interpreterPath}",
+            "args": [
+                "--maxfail=1",
+                "--disable-warnings",
+                "-q",
+                "${input:testFile}"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "justMyCode": false
@@ -31,9 +44,6 @@
             "args": "${input:pipelineClasses}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "env": {
-                "MEDALLION_ROOT": "${workspaceFolder}/example"
-            },
             "justMyCode": false
         },
         {
@@ -44,9 +54,102 @@
             "python": "${command:python.interpreterPath}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "env": {
-                "MEDALLION_ROOT": "${workspaceFolder}/example"
-            },
+            "justMyCode": false
+        },
+        {
+            "name": "Run horde (example)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/example/streaming/run.py",
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Trigger extractor (example)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/example/streaming/trigger_mock.py",
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Configure runtime (example)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/medallion/fleet/configure_runtime.py",
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Run Pipeline: Extractor -> Transformer",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.medallion",
+            "args": [
+                "Extractor",
+                "Transformer",
+                "--force-run-extractor"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Uvicorn: medallion.run.extractor",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "python": "${command:python.interpreterPath}",
+            "args": [
+                "medallion.run.extractor:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8080"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Bootstrap Pubsub from config.yml",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.bootstrap",
+            "python": "${command:python.interpreterPath}",
+            "args": [
+                "--config",
+                "config.yml",
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Generate docker compose from config.yml",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.generate_compose",
+            "python": "${command:python.interpreterPath}",
+            "args": [
+                "config.yml",
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Launch Async Transformer",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.run.transformer",
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
             "justMyCode": false
         }
     ],
@@ -56,6 +159,12 @@
             "type": "promptString",
             "description": "Pipeline classes",
             "default": "Extractor Transformer"
+        },
+        {
+            "id": "testFile",
+            "type": "promptString",
+            "description": "Test file to run (relative to workspace)",
+            "default": "test/test_horde.py"
         }
     ]
 }

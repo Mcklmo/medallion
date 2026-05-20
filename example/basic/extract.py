@@ -1,13 +1,17 @@
-from io import BytesIO
-import json
+import time
+from typing import Iterator
 
-from medallion.base import BaseJSONExtractor
+from .model import Model
+from medallion.model.extractor import BasePydanticExtractor
 
 
-class Extractor(BaseJSONExtractor[list[dict]]):
-    def extract(self) -> list[dict]:
-        return [{"name": "Alice"}, {"name": "Bob"}]
+class Extractor(BasePydanticExtractor[Model]):
+    def extract(self) -> Iterator[Model]:
+        items = [
+            Model(name="Alice"),
+        ]
+        delay_seconds = 0.1
 
-    def read_bytes(self, data: BytesIO) -> list[dict]:
-        data.seek(0)
-        return json.loads(data.read().decode())
+        for item in items:
+            yield item
+            time.sleep(delay_seconds)
