@@ -9,8 +9,10 @@ class Extractor(BasePydanticExtractor[Model]):
     def extract(self) -> Iterator[Model]:
         items = [
             Model(name="Alice"),
+            Model(name="Bob"),
+            Model(name="Charlie"),
         ]
-        delay_seconds = 0.1
+        delay_seconds = 0.5
 
         for item in items:
             yield item

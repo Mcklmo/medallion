@@ -14,7 +14,7 @@ class Transformer(
         self,
         data: Model,
     ) -> Model:
-        delay_seconds = 0.1
+        delay_seconds = 0.5
         time.sleep(delay_seconds)
 
         return Model(name=data.name.upper())
