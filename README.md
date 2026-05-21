@@ -4,7 +4,9 @@
 ![License](https://img.shields.io/pypi/l/medallion-pipeline.svg)
 ![Python](https://img.shields.io/pypi/pyversions/medallion-pipeline.svg)
 
-A composable scraper pipeline built around the medallion architecture (bronze / silver / gold). You define an **extractor** and a chain of **transformers**; the pipeline persists every step's output and caches transformer results by content hash, so unchanged inputs skip recomputation on re-runs.
+A scraper platform running hundreds of processing steps in Python mandates minimizing maintenance cost for updating and deploying steps, and guaranteeing availability of the output data for internal users in less than 0.5 seconds, especially in the case of a thundering herd causing an explosion in the amount of data to process at any point in time.
+
+Medallion is a Python library that reduces the code developers need to change to update processing steps to the mere business logic. It deploys scrapers as microservices, isolating deployments and allowing for seamless re-routing of data traffic after deployment. It exposes the output of each processing step directly as a stream of data that internal users can opt–in for near-instant data availability. The output of each step is also written to disk for asynchronous inspection. Medallion manages thundering herds by design, because the processing–step microservices scale horizontally automatically with any cloud provider.
 
 ## Installation
 
