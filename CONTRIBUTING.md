@@ -56,3 +56,19 @@ For reference, if the trusted publisher ever needs to be reconfigured: <https://
 
 - [ ] Service account roles: Pubsub Admin
 - [ ] Enable PubSub API
+
+## Docker compose debugging
+
+To run a debugger for any compose service, update the `docker-compose.debug.yml` file with the correct service name and run:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up
+```
+
+or
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+```
+
+Once all containers are ready, run the debugging configuration `Attach to docker service`

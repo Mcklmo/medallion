@@ -27,6 +27,9 @@ class BaseTransformer[In, Out](
     def transform(self, data: Iterator[In]) -> Iterator[Out]:
         pass
 
+    def read_input_bytes(self, data: BytesIO) -> BytesIO:
+        return data
+
 
 class BaseStreamingTransformer[
     In,
@@ -45,6 +48,9 @@ class BaseStreamingTransformer[
         return [self.transform_one(item) for item in data]  # debug
         for item in data:
             yield self.transform_one(item)
+
+    def read_input_bytes(self, data: BytesIO) -> BytesIO:
+        return data
 
 
 class BaseJSONTransformer[In, Out](BaseTransformer[In, Out], BaseJSONStep[Out], ABC):

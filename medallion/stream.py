@@ -17,6 +17,7 @@ class Message(BaseModel):
         exclude=True,
         repr=False,
     )
+    delivery_attempt: int | None = None
 
 
 class QueueReader(ABC):

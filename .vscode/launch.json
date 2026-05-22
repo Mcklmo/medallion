@@ -153,17 +153,7 @@
             "justMyCode": false
         },
         {
-            "name": "Run Pipeline: DispatchScadaExtractor",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "medallion.medallion",
-            "args": [
-                "DispatchScadaExtractor"
-            ],
-            "justMyCode": false
-        },
-        {
-            "name": "Attach: extract-nemweb-dispatch-scada",
+            "name": "Attach to docker service",
             "type": "debugpy",
             "request": "attach",
             "connect": {
@@ -179,6 +169,27 @@
                     "localRoot": "${workspaceFolder}/example/nemweb",
                     "remoteRoot": "/app/src"
                 }
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Run Pipeline: DispatchScadaExtractor",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.medallion",
+            "args": [
+                "DispatchScadaExtractor"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Run Pipeline: DispatchScadaExtractor -> DispatchScadaTransformer",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.medallion",
+            "args": [
+                "DispatchScadaExtractor",
+                "DispatchScadaTransformer"
             ],
             "justMyCode": false
         }

@@ -37,6 +37,14 @@ log = logging.getLogger("bootstrap")
 # queue, so this only applies to the readers.
 DEFAULT_ACK_DEADLINE_SECONDS = 60
 
+# Pub/Sub requires a dead_letter_policy on the subscription for
+# delivery_attempt to be populated on incoming messages — the listener gates
+# retries on that counter. Set to Pub/Sub's max (valid range 5–100) so the
+# app's LISTENER_MAX_RETRIES always trips first; this is only a safety net.
+# Real GCP also requires the Pub/Sub service account to have publisher rights
+# on the DLQ topic — provisioned outside this script.
+DEAD_LETTER_MAX_DELIVERY_ATTEMPTS = 100
+
 # How long to wait for the emulator to come up before giving up.
 EMULATOR_WAIT_TIMEOUT = 30
 
@@ -48,6 +56,7 @@ class PlannedResource:
     kind: str  # "topic" or "subscription"
     name: str  # fully-qualified path
     topic: str | None = None  # for subscriptions, the topic path they bind to
+    dead_letter_topic: str | None = None  # for subscriptions, DLQ topic path
 
 
 def load_config(path: Path) -> PipelineGraph:
@@ -113,14 +122,22 @@ def plan(
     planned: list[PlannedResource] = []
 
     # Topics: one per declared queue, prefixed with the repo name per the
-    # design doc ("queue name prefix of the repo name").
+    # design doc ("queue name prefix of the repo name"). Each queue also gets
+    # a DLQ topic so the subscription's dead_letter_policy has somewhere to
+    # route, and the runtime listener has a topic to publish failures to.
     queue_to_topic: dict[str, str] = {}
+    queue_to_dlq_topic: dict[str, str] = {}
     for q in cfg.queues:
         topic_name = f"{repo_name}-{q.name}"
         topic_path = publisher.topic_path(project, topic_name)
         queue_to_topic[q.name] = topic_path
 
+        dlq_topic_name = f"{repo_name}-{q.name}-dlq"
+        dlq_topic_path = publisher.topic_path(project, dlq_topic_name)
+        queue_to_dlq_topic[q.name] = dlq_topic_path
+
         planned.append(PlannedResource(kind="topic", name=topic_path))
+        planned.append(PlannedResource(kind="topic", name=dlq_topic_path))
 
         # add one storage subscription per queue, so stores can read from the queues without transformers
         sub_name = f"{repo_name}-{q.name}-storage-sub"
@@ -130,6 +147,7 @@ def plan(
                 kind="subscription",
                 name=sub_path,
                 topic=topic_path,
+                dead_letter_topic=dlq_topic_path,
             )
         )
 
@@ -146,6 +164,7 @@ def plan(
                 kind="subscription",
                 name=sub_path,
                 topic=queue_to_topic[queue],
+                dead_letter_topic=queue_to_dlq_topic[queue],
             )
         )
 
@@ -172,17 +191,24 @@ def apply(
             except gcp_exc.AlreadyExists:
                 log.info("topic exists: %s", res.name)
         elif res.kind == "subscription":
+            request = {
+                "name": res.name,
+                "topic": res.topic,
+                "ack_deadline_seconds": DEFAULT_ACK_DEADLINE_SECONDS,
+                "enable_message_ordering": True,
+            }
+            if res.dead_letter_topic is not None:
+                request["dead_letter_policy"] = {
+                    "dead_letter_topic": res.dead_letter_topic,
+                    "max_delivery_attempts": DEAD_LETTER_MAX_DELIVERY_ATTEMPTS,
+                }
             try:
-                subscriber.create_subscription(
-                    request={
-                        "name": res.name,
-                        "topic": res.topic,
-                        "ack_deadline_seconds": DEFAULT_ACK_DEADLINE_SECONDS,
-                        "enable_message_ordering": True,
-                    }
-                )
+                subscriber.create_subscription(request=request)
                 log.info("created subscription %s -> %s", res.name, res.topic)
             except gcp_exc.AlreadyExists:
+                # AlreadyExists does NOT update an existing subscription's
+                # dead_letter_policy. Pre-existing subscriptions without a
+                # policy need to be recreated (e.g. via --prune first).
                 log.info("subscription exists: %s", res.name)
         else:
             raise AssertionError(f"unknown resource kind: {res.kind}")

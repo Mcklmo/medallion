@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from io import BytesIO
 import pendulum
@@ -23,6 +24,30 @@ class SourceDocumentLocation(BaseModel):
 
 
 FOLDERNAME_DATETIME_FORMAT = "YYYY-MM-DDTHH-mm-ssSSS"
+
+_LATEST_FILE_PATH_REGEX = re.compile(
+    r"^(?P<rel>\d{4}/\d{2}/\d{2}/\d{2}/"
+    r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\d{3})).*/.+$"
+)
+
+
+def build_timestamp_path_segments(start_time: str) -> list[str]:
+    date = pendulum.from_format(
+        start_time,
+        FOLDERNAME_DATETIME_FORMAT,
+    )
+    year = date.format("YYYY")
+    month = date.format("MM")
+    day = date.format("DD")
+    hour = date.format("HH")
+    timestamp_elements = [
+        year,
+        month,
+        day,
+        hour,
+    ]
+
+    return timestamp_elements
 
 
 class BlobStore(ABC):
@@ -70,18 +95,24 @@ class BlobStore(ABC):
         self,
         folder_path: str,
     ) -> str | None:
-        """Finds the latest file in a folder. Only checks folders named with a timestamp directly in the given folder (does not check subfolders). Returns None if no files are found."""
-        dir_content = self.list_subfolders_at(
-            folder_path,
-        )
+        """Finds the latest run under folder_path. Considers only file paths matching <folder_path>/YYYY/MM/DD/HH/<FOLDERNAME_DATETIME_FORMAT>/... and returns the relative timestamp-folder path (YYYY/MM/DD/HH/<timestamp>) of the latest one. Returns None if no matching file is found."""
+        files = self.list_files_at(folder_path)
+        prefix = f"{folder_path.rstrip('/')}/"
 
-        latest_file = None
+        latest_rel = None
         latest_time = None
 
-        for entry_time_str in dir_content:
+        for file_path in files:
+            if not file_path.startswith(prefix):
+                continue
+
+            match = _LATEST_FILE_PATH_REGEX.match(file_path[len(prefix) :])
+            if not match:
+                continue
+
             try:
                 entry_time = pendulum.from_format(
-                    entry_time_str,
+                    match.group("timestamp"),
                     FOLDERNAME_DATETIME_FORMAT,
                 )
             except Exception:
@@ -89,6 +120,6 @@ class BlobStore(ABC):
 
             if latest_time is None or entry_time > latest_time:
                 latest_time = entry_time
-                latest_file = entry_time_str
+                latest_rel = match.group("rel")
 
-        return latest_file
+        return latest_rel

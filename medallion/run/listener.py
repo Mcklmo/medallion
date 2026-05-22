@@ -27,6 +27,8 @@ class Listener(
         arbitrary_types_allowed=True,
     )
     messages_in: Queue
+    dlq: Queue
+    max_retries: int
     logger: Logger
     max_concurrent_messages: int = 8
     message_executor: ThreadPoolExecutor = Field(
@@ -53,6 +55,8 @@ class Listener(
             signal.signal(signal.SIGTERM, handle_signal)
             if hasattr(signal, "SIGUSR1"):
                 signal.signal(signal.SIGUSR1, handle_dump_signal)
+
+        self.logger.info(f"Starting listener[{self.__class__.__name__}]")
 
         with self.messages_in as consumer:
             try:
@@ -85,7 +89,7 @@ class Listener(
 
             assert (
                 start_time and previous_steps
-            ), f"message[{message}] incomplete. Missing required message args: {ARG_EXECUTION_START_TIME} or {ARG_PREVIOUS_STEPS}"
+            ), f"message[{message.args}] incomplete. Missing required message args: {ARG_EXECUTION_START_TIME} or {ARG_PREVIOUS_STEPS}"
 
             self.process_message(
                 message.data,
@@ -95,21 +99,40 @@ class Listener(
             )
             queue.ack(message)
         except Exception as e:
+            assert message.delivery_attempt is not None, (
+                "Message.delivery_attempt is None — the subscription is missing a "
+                "dead_letter_policy. Re-run bootstrap to provision it."
+            )
+
+            if message.delivery_attempt >= self.max_retries:
+                self.logger.exception(
+                    f"Dead-lettering message after {message.delivery_attempt} attempts: {message.args}",
+                    exc_info=e,
+                )
+                self.dlq.write(
+                    data=message.data,
+                    args={
+                        **message.args,
+                        "_failure_reason": str(e),
+                        "_attempts": message.delivery_attempt,
+                    },
+                    ordering_key=str(message.delivery_attempt),
+                )
+                queue.ack(message)
+                return
+
             self.logger.exception(
-                f"Error processing message: {message}",
+                f"Sending nack for error processing message (attempt {message.delivery_attempt}/{self.max_retries}): {message.args}",
                 exc_info=e,
             )
 
             try:
                 queue.nack(message)
-                self.logger.info(f"nacked message: {message}")
             except Exception as e:
                 self.logger.exception(
-                    f"Failed to nack message: {message}",
+                    f"Failed to nack message: {message.args}",
                     exc_info=e,
                 )
-
-            raise
 
     @abstractmethod
     def process_message(

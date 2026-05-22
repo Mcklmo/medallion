@@ -18,10 +18,13 @@ defaults:
 
 schemas:
   - name: BytesIO
+  - name: DispatchScadaModel
 
 queues:
   - name: raw-dispatch-scada-csv-files
     schema: BytesIO
+  - name: processed-dispatch-scada-data
+    schema: DispatchScadaModel
 
 extractors:
   - name: nemweb-dispatch-scada
@@ -36,3 +39,14 @@ extractors:
       timeout: 1800s
       memory: 1Gi
       max_instances: 1 # be polite to the target site
+
+transformers:
+  - name: dispatch-scada-csv-to-model
+    class: DispatchScadaTransformer
+    reads_from: raw-dispatch-scada-csv-files
+    writes_to: processed-dispatch-scada-data
+    runtime:
+      # Normalization is CPU-bound and fast; tune for throughput.
+      concurrency: 50
+      max_instances: 20
+      min_instances: 1 # keep one warm — avoids cold-start latency on bursts

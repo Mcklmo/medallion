@@ -81,6 +81,10 @@ STORE_EVERY_QUEUE = True
 # in `build_store_service` (./.medallion-data:/app/data).
 STORE_OUTPUT_DIR = "/app/data"
 
+# DLQ defaults for local dev. Production uses must_get_env discipline; local
+# uses a sensible default so `docker compose up` works without extra config.
+DEAD_LETTER_MAX_DELIVERY_ATTEMPTS = 100  # mirrors bootstrap.py — safety net only
+
 
 # --------------------------------------------------------------------------- #
 # Config loading
@@ -108,6 +112,10 @@ def load_config(path: Path) -> PipelineGraph:
 
 def topic_name(repo: str, queue: str) -> str:
     return f"{repo}-{queue}"
+
+
+def dlq_topic_name(repo: str, queue: str) -> str:
+    return f"{repo}-{queue}-dlq"
 
 
 def subscription_name(repo: str, queue: str, consumer: str) -> str:
@@ -164,7 +172,7 @@ def build_extractor_service(
 ) -> dict[str, Any]:
     rt = graph.effective_runtime(ex)
     env = base_env(runtime_to_env(rt))
-    env[FORCE_RUN_EXTRACTOR_ENV_VAR] = is_force_extractor_run_enabled()
+    env[FORCE_RUN_EXTRACTOR_ENV_VAR] = "${FORCE_RUN_EXTRACTOR}"
     env["EXTRACTOR_CLASS"] = ex.class_
     env["MEDALLION_TOPIC"] = topic_name(repo, ex.writes_to)
     env[LOCAL_OUTPUT_DIR_ENV_VAR] = STORE_OUTPUT_DIR
@@ -185,6 +193,9 @@ def build_extractor_service(
     return svc
 
 
+DEFAULT_LISTENER_MAX_RETRIES_ENV_VAR = "DEFAULT_LISTENER_MAX_RETRIES"
+
+
 def build_transformer_service(
     graph: PipelineGraph, repo: str, tr: Transformer
 ) -> dict[str, Any]:
@@ -193,6 +204,8 @@ def build_transformer_service(
     env["TRANSFORMER_CLASS"] = tr.class_
     env["MEDALLION_SUBSCRIPTION"] = subscription_name(repo, tr.reads_from, tr.name)
     env["MEDALLION_TOPIC"] = topic_name(repo, tr.writes_to)
+    env["MEDALLION_DLQ_TOPIC"] = dlq_topic_name(repo, tr.reads_from)
+    env["LISTENER_MAX_RETRIES"] = must_get_env(DEFAULT_LISTENER_MAX_RETRIES_ENV_VAR)
     return {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['transformer']}",
@@ -205,6 +218,8 @@ def build_store_service(graph: PipelineGraph, repo: str, st: Store) -> dict[str,
     rt = graph.effective_runtime(st)
     env = base_env(runtime_to_env(rt))
     env["MEDALLION_SUBSCRIPTION"] = subscription_name(repo, st.reads_from, st.name)
+    env["MEDALLION_DLQ_TOPIC"] = dlq_topic_name(repo, st.reads_from)
+    env["LISTENER_MAX_RETRIES"] = must_get_env(DEFAULT_LISTENER_MAX_RETRIES_ENV_VAR)
     env["LOCAL_OUTPUT_DIR"] = STORE_OUTPUT_DIR
 
     return {
@@ -222,7 +237,9 @@ def build_store_service(graph: PipelineGraph, repo: str, st: Store) -> dict[str,
 
 
 def build_bootstrap(
-    repo: str, topics: list[str], subscriptions: list[tuple[str, str]]
+    repo: str,
+    topics: list[str],
+    subscriptions: list[tuple[str, str, str | None]],
 ) -> dict[str, Any]:
     """A throwaway container that waits for the emulator, then creates every
     topic and subscription via the REST API (curl). Runs to completion; the
@@ -239,10 +256,19 @@ def build_bootstrap(
         lines.append(
             f'curl -s -X PUT {base}/topics/{t} -o /dev/null && echo "topic {t}"'
         )
-    for sub, topic in subscriptions:
-        body = (
-            '{\\"topic\\": \\"projects/$${PUBSUB_PROJECT_ID}/topics/' + topic + '\\"}'
-        )
+    for sub, topic, dlq in subscriptions:
+        topic_path = "projects/$${PUBSUB_PROJECT_ID}/topics/" + topic
+        body = '{\\"topic\\": \\"' + topic_path + '\\"'
+        if dlq is not None:
+            dlq_path = "projects/$${PUBSUB_PROJECT_ID}/topics/" + dlq
+            body += (
+                ', \\"deadLetterPolicy\\": {'
+                '\\"deadLetterTopic\\": \\"' + dlq_path + '\\", '
+                '\\"maxDeliveryAttempts\\": '
+                + str(DEAD_LETTER_MAX_DELIVERY_ATTEMPTS)
+                + "}"
+            )
+        body += "}"
         lines.append(
             f"curl -s -X PUT {base}/subscriptions/{sub} "
             f'-H "Content-Type: application/json" '
@@ -283,14 +309,18 @@ def generate(graph: PipelineGraph) -> dict[str, Any]:
         "ports": ["8085:8085"],
     }
 
-    # Collect topics + subscriptions for the bootstrap container.
+    # Collect topics + subscriptions for the bootstrap container. Each queue
+    # also gets a DLQ topic; reading subscriptions get a dead_letter_policy
+    # pointing at it so Pub/Sub populates delivery_attempt on incoming msgs.
     topics = [topic_name(repo, q) for q in queues]
-    subscriptions: list[tuple[str, str]] = []
+    dlq_topics = [dlq_topic_name(repo, q) for q in queues]
+    subscriptions: list[tuple[str, str, str | None]] = []
     for tr in graph.transformers:
         subscriptions.append(
             (
                 subscription_name(repo, tr.reads_from, tr.name),
                 topic_name(repo, tr.reads_from),
+                dlq_topic_name(repo, tr.reads_from),
             )
         )
     for st in stores:
@@ -298,10 +328,11 @@ def generate(graph: PipelineGraph) -> dict[str, Any]:
             (
                 subscription_name(repo, st.reads_from, st.name),
                 topic_name(repo, st.reads_from),
+                dlq_topic_name(repo, st.reads_from),
             )
         )
 
-    services["bootstrap"] = build_bootstrap(repo, topics, subscriptions)
+    services["bootstrap"] = build_bootstrap(repo, topics + dlq_topics, subscriptions)
 
     # Processor services.
     host_port = EXTRACTOR_HOST_PORT_START

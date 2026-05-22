@@ -42,18 +42,32 @@ MEDALLION_ROOT_ENV = "MEDALLION_ROOT"
 
 def resolve_user_package(logger: Logger) -> str:
     MEDALLION_ROOT = get_medallion_root()
-    root = MEDALLION_ROOT
-    root = os.path.abspath(root)
+    root = os.path.abspath(MEDALLION_ROOT)
     init_file = os.path.join(root, "__init__.py")
     assert os.path.isfile(init_file), f"No __init__.py found in {root}"
 
     logger.info(f"Set {MEDALLION_ROOT_ENV} to {MEDALLION_ROOT}")
 
-    parent, name = os.path.split(root)
-    if parent not in sys.path:
-        sys.path.insert(0, parent)
+    # Walk up while each ancestor is also a package, so the package is imported
+    # under its outermost canonical dotted name. Otherwise the user's own
+    # absolute import (e.g. `from example.nemweb.model import X`) and the
+    # framework's leaf-name import (`nemweb.model`) would load the same file
+    # twice under different `sys.modules` keys, producing two distinct class
+    # objects that fail identity-based equality.
+    parts: list[str] = []
+    current = root
+    while True:
+        parent, name = os.path.split(current)
+        parts.insert(0, name)
+        if not os.path.isfile(os.path.join(parent, "__init__.py")):
+            break
+        current = parent
 
-    return name
+    sys_path_entry = parent
+    if sys_path_entry not in sys.path:
+        sys.path.insert(0, sys_path_entry)
+
+    return ".".join(parts)
 
 
 def get_medallion_root():

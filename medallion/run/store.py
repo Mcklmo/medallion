@@ -1,10 +1,16 @@
 import csv
 from io import BytesIO, StringIO
 import json
+
+import pendulum
 from medallion.log import create_logger
 from medallion.queue.pubsub import PubSubQueue
 from medallion.run.listener import Listener
-from medallion.store.base import BlobStore
+from medallion.store.base import (
+    FOLDERNAME_DATETIME_FORMAT,
+    BlobStore,
+    build_timestamp_path_segments,
+)
 from medallion.store.store import initialize_storage, must_get_env
 from pydantic import Field
 
@@ -28,7 +34,10 @@ class StorageListener(Listener):
         start_time: str,
         previous_steps: list[str],
     ) -> None:
-        destination_folder_path = "/".join(previous_steps + [start_time])
+        destination_path_elements = (
+            previous_steps + build_timestamp_path_segments(start_time) + [start_time]
+        )
+        destination_folder_path = "/".join(destination_path_elements)
 
         if not is_chunk_end:
             self.messages_hot_store.setdefault(destination_folder_path, []).append(data)
@@ -38,6 +47,25 @@ class StorageListener(Listener):
         values: list[str] = []
         header: str = ""
         found_csv_file = False
+
+        def collect_json_value(
+            parsed_json: dict,
+            header: str,
+        ) -> None:
+            parsed_json = {key: value for key, value in sorted(parsed_json.items())}
+            _header = ",".join(list(parsed_json.keys()))
+
+            if not header:
+                header = _header
+
+            assert (
+                header == _header
+            ), f"Inconsistent header in output data: [{header}] vs [{_header}]"
+
+            value = ",".join([str(v) for v in parsed_json.values()])
+            values.append(value)
+
+            return header
 
         for i, row in enumerate(output_data):
             try:
@@ -56,21 +84,24 @@ class StorageListener(Listener):
                     )
                     continue
 
-            parsed_json = {key: value for key, value in sorted(parsed_json.items())}
-            _header = ",".join(list(parsed_json.keys()))
-
-            if not header:
-                header = _header
-
-            assert (
-                header == _header
-            ), f"Inconsistent header in output data: [{header}] vs [{_header}]"
-
-            value = ",".join([str(v) for v in parsed_json.values()])
-            values.append(value)
+            if isinstance(parsed_json, dict):
+                header = collect_json_value(parsed_json, header)
+            else:
+                assert isinstance(
+                    parsed_json, list
+                ), f"Unexpected JSON type in output data for {destination_folder_path}: {type(parsed_json)}"
+                for item in parsed_json:
+                    assert isinstance(
+                        item, dict
+                    ), f"Unexpected JSON item type in output data for {destination_folder_path}: {type(item)}"
+                    header = collect_json_value(item, header)
 
         try:
-            csv_output_content = "\n".join([header] if header else [] + values)
+            assert (
+                values and header or (not values and not header)
+            ), f"Inconsistent state for {destination_folder_path}: header[{header}] values[{values[:5]}...]"
+
+            csv_output_content = "\n".join([header] + values)
         except TypeError as e:
             self.logger.error(
                 f"Failed to generate CSV content for path[{destination_folder_path}] with header[{header}] and values[{values}]",
@@ -124,6 +155,7 @@ class StorageListener(Listener):
 
 if __name__ == "__main__":
     logger = create_logger()
+    project_id = must_get_env("PUBSUB_PROJECT_ID")
     store = initialize_storage(
         must_get_env("LOCAL_OUTPUT_DIR"),
         logger,
@@ -131,10 +163,16 @@ if __name__ == "__main__":
     listener = StorageListener(
         store=store,
         messages_in=PubSubQueue(
-            project_id=must_get_env("PUBSUB_PROJECT_ID"),
+            project_id=project_id,
             subscription_id=must_get_env("MEDALLION_SUBSCRIPTION"),
             logger=logger,
         ),
+        dlq=PubSubQueue(
+            project_id=project_id,
+            topic_id=must_get_env("MEDALLION_DLQ_TOPIC"),
+            logger=logger,
+        ),
+        max_retries=int(must_get_env("LISTENER_MAX_RETRIES")),
         logger=logger,
         output_file_extension="jsonl",
     )

@@ -1,11 +1,10 @@
 from medallion.log import create_logger
+from medallion.model.extractor import ARG_EXECUTION_START_TIME, ARG_IS_CHUNK_END
 from medallion.queue.pubsub import PubSubQueue
 from medallion.resolve_classes import load_transformer_from_env
 from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
 from medallion.run.listener import Listener
 from medallion.run.extractor import (
-    ARG_EXECUTION_START_TIME,
-    ARG_IS_CHUNK_END,
     ARG_PREVIOUS_STEPS,
     ordering_key_from_steps,
 )
@@ -38,7 +37,7 @@ class TransformerListener(Listener):
         }
 
         if isinstance(transformer, BaseStreamingTransformer):
-            message_data = transformer.read_bytes(data)
+            message_data = transformer.read_input_bytes(data)
             output_data = transformer.transform_one(message_data)
             output_bytes = transformer.write_output(output_data)
 
@@ -81,6 +80,12 @@ if __name__ == "__main__":
             topic_id=must_get_env("MEDALLION_TOPIC"),
             logger=logger,
         ),
+        dlq=PubSubQueue(
+            project_id=project_id,
+            topic_id=must_get_env("MEDALLION_DLQ_TOPIC"),
+            logger=logger,
+        ),
+        max_retries=int(must_get_env("LISTENER_MAX_RETRIES")),
         logger=create_logger(),
     )
     listener.listen()

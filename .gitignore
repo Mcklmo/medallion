@@ -1,7 +1,7 @@
 ./mypy_cache*
 __pycache__/
 .env
-output/*
+.output/*
 dist/
 build/
 *.egg-info/

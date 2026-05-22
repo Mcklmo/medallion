@@ -1,3 +1,4 @@
+from io import BytesIO
 from logging import Logger
 
 import pendulum
@@ -74,8 +75,16 @@ class BaseExtractor[Out](
         }
 
         for next_item in data:
-            output_data = self.write_output(current_item).getvalue()
-            stream_message_bytes(output_data, args)
+            output_buffer = self.write_output(current_item)
+            if isinstance(output_buffer, list):
+                for _buffer in output_buffer:
+                    assert isinstance(_buffer, BytesIO)
+
+                    output_data = _buffer.getvalue()
+                    stream_message_bytes(output_data, args)
+            else:
+                output_data = output_buffer.getvalue()
+                stream_message_bytes(output_data, args)
 
             current_item = next_item
 
@@ -88,8 +97,8 @@ class BaseExtractor[Out](
 
             return
 
-        for buffer in final_output_buffer:
-            output_data = buffer.getvalue()
+        for _buffer in final_output_buffer:
+            output_data = _buffer.getvalue()
             stream_message_bytes(output_data, args)
 
     def load_or_extract_data(
@@ -109,13 +118,23 @@ class BaseExtractor[Out](
             )
 
         if not previous_run_filename or force_run_extractor:
+            if force_run_extractor:
+                logger.info(
+                    "Force run extractor enabled, skipping cache check and running extractor"
+                )
+            else:
+                logger.info(
+                    f"No previous extractor output found in folder[{self.name}], running extractor"
+                )
+
             return iter(self.extract())
 
-        logger.info(
-            f"Found previous extractor output: {previous_run_filename}, loading data from it",
-        )
+        previous_run_file_path = f"{self.name}/{previous_run_filename}"
         data: list[Any] = []
-        files_at_path = store.list_files_at(f"{self.name}/{previous_run_filename}")
+        files_at_path = store.list_files_at(previous_run_file_path)
+        logger.warning(
+            f"Found previous extractor output: {previous_run_file_path}, loading {len(files_at_path)} files",
+        )
 
         for filename in files_at_path:
             output = self.read_bytes(

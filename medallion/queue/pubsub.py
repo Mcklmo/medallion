@@ -96,6 +96,7 @@ class PubSubQueue(Queue):
                 data=pubsub_message.data,
                 args=args,
                 raw_message=pubsub_message,
+                delivery_attempt=pubsub_message.delivery_attempt,
             ),
         )
 

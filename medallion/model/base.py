@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from io import BytesIO
 import json
+import logging
 from typing import Generator, Iterator, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel
@@ -61,10 +62,6 @@ class ProcessingStep[Out](ABC):
     def write_output(self, output_data: Out) -> BytesIO:
         pass
 
-    @abstractmethod
-    def read_bytes(self, data: BytesIO) -> Out:
-        pass
-
     @property
     def name(self) -> str:
         return self.__class__.__name__
@@ -75,11 +72,20 @@ class Writer[Out](ABC):
     def output_type(cls) -> type:
         return _resolve_type_arg(cls, Writer, 0)
 
+    @abstractmethod
+    def read_bytes(self, data: BytesIO) -> Out:
+        """Used for loading cached data"""
+        pass
+
 
 class Reader[In](ABC):
     @classproperty
     def input_type(cls) -> type:
         return _resolve_type_arg(cls, Reader, 0)
+
+    @abstractmethod
+    def read_input_bytes(self, data: BytesIO) -> In:
+        pass
 
 
 class BaseJSONStep[Out](ProcessingStep[Out]):
@@ -105,12 +111,12 @@ class BasePydanticProcessingStep[
         if isinstance(data, BytesIO):
             byte_data = data.read()
         else:
+            assert isinstance(data, bytes), "i hate dynamically typed languages"
             byte_data = data
 
-        schema = (
-            self.input_type if hasattr(type(self), "input_type") else self.output_type
-        )
-        return schema.model_validate(json.loads(byte_data.decode()))
+        schema = self.output_type
+
+        return [schema.model_validate(item) for item in json.loads(byte_data.decode())]
 
     def write_output(self, output_data: Out) -> BytesIO:
         if isinstance(output_data, Generator):
@@ -120,8 +126,9 @@ class BasePydanticProcessingStep[
             output_data = list(output_data)
 
         if isinstance(output_data, list):
-            output_data = [item.model_dump() for item in output_data]
-            return BytesIO(json.dumps(output_data, indent=2).encode())
+            output_data: list[BaseModel] = output_data
+            _output_data = [item.model_dump() for item in output_data]
+            return BytesIO(json.dumps(_output_data, indent=2).encode())
 
         return BytesIO(output_data.model_dump_json(indent=2).encode())
 

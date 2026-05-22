@@ -27,9 +27,29 @@ services:
       curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-raw-dispatch-scada-csv-files
       -o /dev/null && echo "topic nemweb-dispatch-scada-raw-dispatch-scada-csv-files"
 
+      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-processed-dispatch-scada-data
+      -o /dev/null && echo "topic nemweb-dispatch-scada-processed-dispatch-scada-data"
+
+      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-raw-dispatch-scada-csv-files-dlq
+      -o /dev/null && echo "topic nemweb-dispatch-scada-raw-dispatch-scada-csv-files-dlq"
+
+      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-processed-dispatch-scada-data-dlq
+      -o /dev/null && echo "topic nemweb-dispatch-scada-processed-dispatch-scada-data-dlq"
+
+      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/subscriptions/nemweb-dispatch-scada-raw-dispatch-scada-csv-files-dispatch-scada-csv-to-model
+      -H "Content-Type: application/json" -d "{\"topic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-raw-dispatch-scada-csv-files\",
+      \"deadLetterPolicy\": {\"deadLetterTopic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-raw-dispatch-scada-csv-files-dlq\",
+      \"maxDeliveryAttempts\": 100}}" -o /dev/null && echo "sub nemweb-dispatch-scada-raw-dispatch-scada-csv-files-dispatch-scada-csv-to-model"
+
       curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/subscriptions/nemweb-dispatch-scada-raw-dispatch-scada-csv-files-store-raw-dispatch-scada-csv-files
-      -H "Content-Type: application/json" -d "{\"topic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-raw-dispatch-scada-csv-files\"}"
-      -o /dev/null && echo "sub nemweb-dispatch-scada-raw-dispatch-scada-csv-files-store-raw-dispatch-scada-csv-files"
+      -H "Content-Type: application/json" -d "{\"topic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-raw-dispatch-scada-csv-files\",
+      \"deadLetterPolicy\": {\"deadLetterTopic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-raw-dispatch-scada-csv-files-dlq\",
+      \"maxDeliveryAttempts\": 100}}" -o /dev/null && echo "sub nemweb-dispatch-scada-raw-dispatch-scada-csv-files-store-raw-dispatch-scada-csv-files"
+
+      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/subscriptions/nemweb-dispatch-scada-processed-dispatch-scada-data-store-processed-dispatch-scada-data
+      -H "Content-Type: application/json" -d "{\"topic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-processed-dispatch-scada-data\",
+      \"deadLetterPolicy\": {\"deadLetterTopic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-processed-dispatch-scada-data-dlq\",
+      \"maxDeliveryAttempts\": 100}}" -o /dev/null && echo "sub nemweb-dispatch-scada-processed-dispatch-scada-data-store-processed-dispatch-scada-data"
 
       echo "bootstrap done"'
   extract-nemweb-dispatch-scada:
@@ -44,7 +64,7 @@ services:
       MEDALLION_MAX_INSTANCES: 1
       MEDALLION_MIN_INSTANCES: 0
       MEDALLION_TIMEOUT: 1800s
-      FORCE_RUN_EXTRACTOR: true
+      FORCE_RUN_EXTRACTOR: ${FORCE_RUN_EXTRACTOR}
       EXTRACTOR_CLASS: DispatchScadaExtractor
       MEDALLION_TOPIC: nemweb-dispatch-scada-raw-dispatch-scada-csv-files
       LOCAL_OUTPUT_DIR: /app/data
@@ -57,6 +77,26 @@ services:
     - ./.medallion-data:/app/data
     labels:
       medallion.schedules: peak-hours=0/10 12 * * * (Europe/Copenhagen)
+  transform-dispatch-scada-csv-to-model:
+    build: .
+    command: python -m medallion.run.transformer
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PUBSUB_PROJECT_ID: local-dev
+      MEDALLION_ROOT: /app/src
+      FILE_STORAGE_TYPE: local
+      MEDALLION_CONCURRENCY: 50
+      MEDALLION_MAX_INSTANCES: 20
+      MEDALLION_MIN_INSTANCES: 1
+      MEDALLION_TIMEOUT: 300s
+      TRANSFORMER_CLASS: DispatchScadaTransformer
+      MEDALLION_SUBSCRIPTION: nemweb-dispatch-scada-raw-dispatch-scada-csv-files-dispatch-scada-csv-to-model
+      MEDALLION_TOPIC: nemweb-dispatch-scada-processed-dispatch-scada-data
+      MEDALLION_DLQ_TOPIC: nemweb-dispatch-scada-raw-dispatch-scada-csv-files-dlq
+      LISTENER_MAX_RETRIES: '0'
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
   store-raw-dispatch-scada-csv-files:
     build: .
     command: python -m medallion.run.store
@@ -70,6 +110,29 @@ services:
       MEDALLION_MIN_INSTANCES: 0
       MEDALLION_TIMEOUT: 300s
       MEDALLION_SUBSCRIPTION: nemweb-dispatch-scada-raw-dispatch-scada-csv-files-store-raw-dispatch-scada-csv-files
+      MEDALLION_DLQ_TOPIC: nemweb-dispatch-scada-raw-dispatch-scada-csv-files-dlq
+      LISTENER_MAX_RETRIES: '0'
+      LOCAL_OUTPUT_DIR: /app/data
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes:
+    - ./.medallion-data:/app/data
+  store-processed-dispatch-scada-data:
+    build: .
+    command: python -m medallion.run.store
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PUBSUB_PROJECT_ID: local-dev
+      MEDALLION_ROOT: /app/src
+      FILE_STORAGE_TYPE: local
+      MEDALLION_CONCURRENCY: 10
+      MEDALLION_MAX_INSTANCES: 10
+      MEDALLION_MIN_INSTANCES: 0
+      MEDALLION_TIMEOUT: 300s
+      MEDALLION_SUBSCRIPTION: nemweb-dispatch-scada-processed-dispatch-scada-data-store-processed-dispatch-scada-data
+      MEDALLION_DLQ_TOPIC: nemweb-dispatch-scada-processed-dispatch-scada-data-dlq
+      LISTENER_MAX_RETRIES: '0'
       LOCAL_OUTPUT_DIR: /app/data
     depends_on:
       bootstrap:

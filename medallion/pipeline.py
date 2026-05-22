@@ -10,19 +10,29 @@ from pydantic import BaseModel, ConfigDict
 from medallion.store.base import BlobStore
 
 
-def compute_content_hash(content: BytesIO) -> str:
+def compute_content_hash(
+    content: BytesIO | list[BytesIO],
+) -> str:
     hasher = hashlib.sha256()
     CHUNK_SIZE = 8 * 1024  # 8 KB
 
-    content.seek(0)
-
-    for chunk in iter(
-        lambda: content.read(CHUNK_SIZE),
-        b"",
-    ):
-        hasher.update(chunk)
-
-    content.seek(0)
+    if isinstance(content, list):
+        for c in content:
+            c.seek(0)
+            for chunk in iter(
+                lambda: c.read(CHUNK_SIZE),
+                b"",
+            ):
+                hasher.update(chunk)
+            c.seek(0)
+    else:
+        content.seek(0)
+        for chunk in iter(
+            lambda: content.read(CHUNK_SIZE),
+            b"",
+        ):
+            hasher.update(chunk)
+        content.seek(0)
 
     return hasher.hexdigest()
 
@@ -60,6 +70,7 @@ class PipeLine(BaseModel):
         filename = f"{i}_{extractor.name}.{extractor.file_extension}"
 
         output_previous_bytes = None
+        output_previous = None
 
         if not force_run_extractor:
             self.logger.info("Checking for last run's extractor output")
@@ -71,11 +82,11 @@ class PipeLine(BaseModel):
                     filename,
                 )
             )
-            output_previous = (
-                extractor.read_bytes(output_previous_bytes)
-                if output_previous_bytes
-                else None
-            )
+            if output_previous_bytes:
+                self.logger.warning(
+                    "Found previous extractor output, using it instead of running extractor"
+                )
+                output_previous = extractor.read_bytes(output_previous_bytes)
         else:
             self.logger.info("Force run extractor enabled, skipping cache check")
 
@@ -103,6 +114,7 @@ class PipeLine(BaseModel):
                 i,
                 start_time,
                 output_previous_bytes,
+                output_previous,
                 t,
             )
 
@@ -139,6 +151,7 @@ class PipeLine(BaseModel):
         i: int,
         start_time: str,
         output_previous_bytes: BytesIO,
+        output_previous: Any,
         t: BaseTransformer | BaseStreamingTransformer,
     ) -> Any:
         content_hash = compute_content_hash(output_previous_bytes)
@@ -154,15 +167,21 @@ class PipeLine(BaseModel):
                 f"Cache miss for transformer {t.name}. Caching result at {cache_path}"
             )
 
-            output_previous: Any
-            output_previous_bytes: BytesIO
-
-            if isinstance(t, BaseTransformer):
+            if isinstance(
+                t,
+                BaseTransformer,
+            ) or isinstance(
+                output_previous,
+                Iterable,
+            ):
                 output_previous = t.transform(output_previous)
-            elif isinstance(t, BaseStreamingTransformer):
-                9
+            else:
+                assert isinstance(
+                    t, BaseStreamingTransformer
+                ), f"Transformer must be of type {BaseTransformer.__name__} or {BaseStreamingTransformer.__name__}"
 
-            output_previous = t.transform_one(output_previous)
+                output_previous = t.transform_one(output_previous)
+
             output_previous_bytes = t.write_output(output_previous)
 
             self.store_cache.upload_file(
