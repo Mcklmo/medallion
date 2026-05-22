@@ -42,7 +42,7 @@ class TransformerListener(Listener):
             output_data = transformer.transform_one(message_data)
             output_bytes = transformer.write_output(output_data)
 
-            self.messages_out.publish(
+            self.messages_out.write(
                 data=output_bytes.read(),
                 args=args,
                 ordering_key=ordering_key_from_steps(args[ARG_PREVIOUS_STEPS]),
@@ -57,7 +57,7 @@ class TransformerListener(Listener):
         output_data = transformer.transform(self.messages_hot_store)
         output_bytes = transformer.write_output(output_data)
 
-        self.messages_out.publish(
+        self.messages_out.write(
             data=output_bytes.read(),
             args=args,
             ordering_key=ordering_key_from_steps(args[ARG_PREVIOUS_STEPS]),
@@ -67,8 +67,8 @@ class TransformerListener(Listener):
 
 if __name__ == "__main__":
     project_id = must_get_env("PUBSUB_PROJECT_ID")
-    transformer = load_transformer_from_env()
     logger = create_logger()
+    transformer = load_transformer_from_env(logger)
     listener = TransformerListener(
         transformer=transformer,
         messages_in=PubSubQueue(
@@ -83,4 +83,4 @@ if __name__ == "__main__":
         ),
         logger=create_logger(),
     )
-    listener.run()
+    listener.listen()

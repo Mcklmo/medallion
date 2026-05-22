@@ -123,7 +123,7 @@
             "python": "${command:python.interpreterPath}",
             "args": [
                 "--config",
-                "config.yml",
+                "config.yml"
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
@@ -136,7 +136,7 @@
             "module": "medallion.generate_compose",
             "python": "${command:python.interpreterPath}",
             "args": [
-                "config.yml",
+                "example/nemweb/config.yml"
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
@@ -150,6 +150,36 @@
             "python": "${command:python.interpreterPath}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Run Pipeline: DispatchScadaExtractor",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.medallion",
+            "args": [
+                "DispatchScadaExtractor"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Attach: extract-nemweb-dispatch-scada",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/medallion",
+                    "remoteRoot": "/app/medallion"
+                },
+                {
+                    "localRoot": "${workspaceFolder}/example/nemweb",
+                    "remoteRoot": "/app/src"
+                }
+            ],
             "justMyCode": false
         }
     ],

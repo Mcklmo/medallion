@@ -17,7 +17,7 @@ def resolve_class(
     pkg = importlib.import_module(package_name)
     cls = getattr(pkg, class_name, None)
 
-    assert cls is not None, f"{class_name} not found in {pkg.__path__}"
+    assert cls is not None, f"{class_name} not found in module {pkg.__path__}"
 
     return cls
 
@@ -32,22 +32,22 @@ def get_user_input() -> list[str]:
         nargs="+",
         help="Pipeline classes in order: Extractor first, then Transformers.",
     )
-    parser.add_argument(
-        "--force-run-extractor",
-        action="store_true",
-        help="Whether to force run the extractor even if cache exists.",
-    )
 
     args = parser.parse_args()
-    return args.class_names, args.force_run_extractor
+    return args.class_names
 
 
-def resolve_user_package() -> str:
-    MEDALLION_ROOT = os.getenv("MEDALLION_ROOT") or os.getcwd() + "/medallion"
+MEDALLION_ROOT_ENV = "MEDALLION_ROOT"
+
+
+def resolve_user_package(logger: Logger) -> str:
+    MEDALLION_ROOT = get_medallion_root()
     root = MEDALLION_ROOT
     root = os.path.abspath(root)
     init_file = os.path.join(root, "__init__.py")
     assert os.path.isfile(init_file), f"No __init__.py found in {root}"
+
+    logger.info(f"Set {MEDALLION_ROOT_ENV} to {MEDALLION_ROOT}")
 
     parent, name = os.path.split(root)
     if parent not in sys.path:
@@ -56,13 +56,21 @@ def resolve_user_package() -> str:
     return name
 
 
+def get_medallion_root():
+    MEDALLION_ROOT = os.getenv(MEDALLION_ROOT_ENV) or os.getcwd() + "/medallion"
+    return MEDALLION_ROOT
+
+
 def load_classes(
     store_output: BlobStore,
     store_cache: BlobStore,
     logger: Logger,
     class_names: list[str],
 ) -> PipeLine:
-    classes = resolve_classes_from_names(class_names)
+    classes = resolve_classes_from_names(
+        class_names,
+        logger,
+    )
     extractor = classes[0]()
     transformers = [cls() for cls in classes[1:]] if len(classes) > 1 else None
 
@@ -75,8 +83,11 @@ def load_classes(
     )
 
 
-def resolve_classes_from_names(class_names: list[str]) -> list[type]:
-    package_name = resolve_user_package()
+def resolve_classes_from_names(
+    class_names: list[str],
+    logger: Logger,
+) -> list[type]:
+    package_name = resolve_user_package(logger)
     classes = [
         resolve_class(
             package_name,
@@ -88,9 +99,14 @@ def resolve_classes_from_names(class_names: list[str]) -> list[type]:
     return classes
 
 
-def load_extractor_from_env() -> BaseExtractor:
+def load_extractor_from_env(
+    logger: Logger,
+) -> BaseExtractor:
     processor_name = must_get_env("EXTRACTOR_CLASS")
-    processor = build_processor_from_name(processor_name)
+    processor = build_processor_from_name(
+        processor_name,
+        logger,
+    )
 
     assert isinstance(
         processor,
@@ -100,10 +116,14 @@ def load_extractor_from_env() -> BaseExtractor:
     return processor
 
 
-def load_transformer_from_env() -> BaseTransformer | BaseStreamingTransformer:
+def load_transformer_from_env(
+    logger: Logger,
+) -> BaseTransformer | BaseStreamingTransformer:
     transformer_name = must_get_env("TRANSFORMER_CLASS")
-    transformer = build_processor_from_name(transformer_name)
-
+    transformer = build_processor_from_name(
+        transformer_name,
+        logger,
+    )
     expected_types = (BaseTransformer, BaseStreamingTransformer)
     assert isinstance(
         transformer,
@@ -113,8 +133,14 @@ def load_transformer_from_env() -> BaseTransformer | BaseStreamingTransformer:
     return transformer
 
 
-def build_processor_from_name(processor_name: str) -> type:
-    _processors = resolve_classes_from_names([processor_name])
+def build_processor_from_name(
+    processor_name: str,
+    logger: Logger,
+) -> type:
+    _processors = resolve_classes_from_names(
+        [processor_name],
+        logger,
+    )
 
     assert (
         len(_processors) == 1

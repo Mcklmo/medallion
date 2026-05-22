@@ -99,7 +99,7 @@ class PubSubQueue(Queue):
             ),
         )
 
-    def messages(self) -> Iterator[Message]:
+    def read_stream(self) -> Iterator[Message]:
         while not self._closed:
             try:
                 yield self._inbox.get(timeout=0.5)
@@ -138,7 +138,7 @@ class PubSubQueue(Queue):
             message.args,
         )
 
-    def publish(
+    def write(
         self,
         data: bytes,
         args: dict[str, Any],

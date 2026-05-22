@@ -1,5 +1,6 @@
 from logging import Logger
 from medallion.log import create_logger
+from medallion.model.extractor import is_force_extractor_run_enabled
 from medallion.resolve_classes import (
     get_user_input,
     load_classes,
@@ -8,12 +9,14 @@ from medallion.store.store import initialize_storage, must_get_env
 
 
 def medallion(logger: Logger) -> None:
-    user_input_classes, force_run_extractor = get_user_input()
+    user_input_classes = get_user_input()
+    store_output = initialize_storage(
+        must_get_env("LOCAL_OUTPUT_DIR"),
+        logger,
+    )
+
     pipe = load_classes(
-        store_output=initialize_storage(
-            must_get_env("LOCAL_OUTPUT_DIR"),
-            logger,
-        ),
+        store_output=store_output,
         store_cache=initialize_storage(
             must_get_env("LOCAL_CACHE_DIR"),
             logger,
@@ -21,9 +24,9 @@ def medallion(logger: Logger) -> None:
         logger=logger,
         class_names=user_input_classes,
     )
-    output_previous = pipe.run(force_run_extractor=force_run_extractor)
+    force_run_extractor = is_force_extractor_run_enabled()
 
-    print(output_previous)
+    output_previous = pipe.run(force_run_extractor=force_run_extractor)
 
 
 def main() -> None:

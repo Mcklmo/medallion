@@ -1,4 +1,5 @@
-from io import BytesIO
+import csv
+from io import BytesIO, StringIO
 import json
 from medallion.log import create_logger
 from medallion.queue.pubsub import PubSubQueue
@@ -27,38 +28,97 @@ class StorageListener(Listener):
         start_time: str,
         previous_steps: list[str],
     ) -> None:
-        destination_path = "/".join(previous_steps + [start_time] + ["data.csv"])
+        destination_folder_path = "/".join(previous_steps + [start_time])
 
         if not is_chunk_end:
-            self.messages_hot_store.setdefault(destination_path, []).append(data)
+            self.messages_hot_store.setdefault(destination_folder_path, []).append(data)
             return
 
-        output_data = self.messages_hot_store.pop(destination_path, []) + [data]
+        output_data = self.messages_hot_store.pop(destination_folder_path, []) + [data]
+        values: list[str] = []
+        header: str = ""
+        found_csv_file = False
 
-        header: str | None = None
-        for row in output_data:
-            parsed_json = json.loads(row)
+        for i, row in enumerate(output_data):
+            try:
+                parsed_json = json.loads(row)
+            except json.decoder.JSONDecodeError as e:
+                try:
+                    self.upload_csv_content(destination_folder_path, header, i, row)
+                    found_csv_file = True
+
+                    continue
+
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to parse row as JSON or CSV for {destination_folder_path}: {row[:1000]}...",
+                        exc_info=e,
+                    )
+                    continue
+
             parsed_json = {key: value for key, value in sorted(parsed_json.items())}
             _header = ",".join(list(parsed_json.keys()))
 
-            if header is None:
+            if not header:
                 header = _header
 
-            assert header == _header, (
-                "Inconsistent header in output data: " + header + " vs " + _header
-            )
+            assert (
+                header == _header
+            ), f"Inconsistent header in output data: [{header}] vs [{_header}]"
 
-        values: list[str] = []
-        for row in output_data:
-            json_data = json.loads(row)
-            json_data = {key: value for key, value in sorted(json_data.items())}
-            value = ",".join([str(v) for v in json_data.values()])
-
+            value = ",".join([str(v) for v in parsed_json.values()])
             values.append(value)
 
+        try:
+            csv_output_content = "\n".join([header] if header else [] + values)
+        except TypeError as e:
+            self.logger.error(
+                f"Failed to generate CSV content for path[{destination_folder_path}] with header[{header}] and values[{values}]",
+                exc_info=e,
+            )
+            return
+
+        if not csv_output_content:
+            if found_csv_file:
+                return
+
+            self.logger.warning(
+                f"No valid CSV content generated for {destination_folder_path}, skipping upload."
+            )
+            return
+
         self.store.upload_file(
-            destination_path=destination_path,
-            content=BytesIO("\n".join([header] + values).encode()),
+            destination_path=f"{destination_folder_path}/data.csv",
+            content=BytesIO(csv_output_content.encode()),
+        )
+
+    def upload_csv_content(
+        self,
+        destination_folder_path: str,
+        header: str,
+        i: int,
+        potential_csv_files: bytes,
+    ) -> None:
+        reader = list(
+            csv.reader(
+                StringIO(potential_csv_files.decode()),
+                delimiter=",",
+            )
+        )
+        _header = ",".join(reader[0])
+        if not header:
+            header = _header
+
+        assert (
+            header == _header
+        ), f"Inconsistent header in output data: [{header}] vs [{_header}]"
+
+        values = [",".join(r) for r in reader[1:]]
+        csv_output_content = "\n".join(([header] if header else []) + values)
+
+        self.store.upload_file(
+            destination_path=f"{destination_folder_path}/{i}.csv",
+            content=BytesIO(csv_output_content.encode()),
         )
 
 
@@ -78,4 +138,4 @@ if __name__ == "__main__":
         logger=logger,
         output_file_extension="jsonl",
     )
-    listener.run()
+    listener.listen()

@@ -19,9 +19,9 @@ class Message(BaseModel):
     )
 
 
-class Consumer(ABC):
+class QueueReader(ABC):
     @abstractmethod
-    def messages(self) -> Iterator[Message]:
+    def read_stream(self) -> Iterator[Message]:
         """Yield messages indefinitely until the consumer is closed."""
 
     @abstractmethod
@@ -39,9 +39,9 @@ class Consumer(ABC):
         """
 
 
-class Producer(ABC):
+class QueueWriter(ABC):
     @abstractmethod
-    def publish(
+    def write(
         self,
         data: bytes,
         args: dict[
@@ -61,8 +61,8 @@ class Producer(ABC):
 
 
 class Queue(
-    Consumer,
-    Producer,
+    QueueReader,
+    QueueWriter,
     ABC,
 ):
     @abstractmethod

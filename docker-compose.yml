@@ -24,96 +24,53 @@ services:
       until curl -s $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/topics
       -o /dev/null; do sleep 1; done
 
-      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/topics/scraper-acme-raw-products
-      -o /dev/null && echo "topic scraper-acme-raw-products"
+      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-raw-dispatch-scada-csv-files
+      -o /dev/null && echo "topic nemweb-dispatch-scada-raw-dispatch-scada-csv-files"
 
-      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/topics/scraper-acme-normalized-products
-      -o /dev/null && echo "topic scraper-acme-normalized-products"
-
-      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/subscriptions/scraper-acme-raw-products-normalize-products
-      -H "Content-Type: application/json" -d "{\"topic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/scraper-acme-raw-products\"}"
-      -o /dev/null && echo "sub scraper-acme-raw-products-normalize-products"
-
-      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/subscriptions/scraper-acme-raw-products-store-raw-products
-      -H "Content-Type: application/json" -d "{\"topic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/scraper-acme-raw-products\"}"
-      -o /dev/null && echo "sub scraper-acme-raw-products-store-raw-products"
-
-      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/subscriptions/scraper-acme-normalized-products-store-normalized-products
-      -H "Content-Type: application/json" -d "{\"topic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/scraper-acme-normalized-products\"}"
-      -o /dev/null && echo "sub scraper-acme-normalized-products-store-normalized-products"
+      curl -s -X PUT $${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}/subscriptions/nemweb-dispatch-scada-raw-dispatch-scada-csv-files-store-raw-dispatch-scada-csv-files
+      -H "Content-Type: application/json" -d "{\"topic\": \"projects/$${PUBSUB_PROJECT_ID}/topics/nemweb-dispatch-scada-raw-dispatch-scada-csv-files\"}"
+      -o /dev/null && echo "sub nemweb-dispatch-scada-raw-dispatch-scada-csv-files-store-raw-dispatch-scada-csv-files"
 
       echo "bootstrap done"'
-  extract-acme-products:
+  extract-nemweb-dispatch-scada:
     build: .
     command: python -m medallion.run.extractor
     environment:
       PUBSUB_EMULATOR_HOST: pubsub:8085
       PUBSUB_PROJECT_ID: local-dev
       MEDALLION_ROOT: /app/src
+      FILE_STORAGE_TYPE: local
       MEDALLION_CONCURRENCY: 10
       MEDALLION_MAX_INSTANCES: 1
       MEDALLION_MIN_INSTANCES: 0
       MEDALLION_TIMEOUT: 1800s
-      EXTRACTOR_CLASS: Extractor
-      MEDALLION_TOPIC: scraper-acme-raw-products
+      FORCE_RUN_EXTRACTOR: true
+      EXTRACTOR_CLASS: DispatchScadaExtractor
+      MEDALLION_TOPIC: nemweb-dispatch-scada-raw-dispatch-scada-csv-files
+      LOCAL_OUTPUT_DIR: /app/data
     ports:
     - 8001:8080
     depends_on:
       bootstrap:
         condition: service_completed_successfully
-    labels:
-      medallion.schedules: peak-hours=0/10 12 * * * (Europe/Copenhagen); off-peak=0
-        0-11,13-23 * * * (Europe/Copenhagen)
-  transform-normalize-products:
-    build: .
-    command: python -m medallion.run.transformer
-    environment:
-      PUBSUB_EMULATOR_HOST: pubsub:8085
-      PUBSUB_PROJECT_ID: local-dev
-      MEDALLION_ROOT: /app/src
-      MEDALLION_CONCURRENCY: 50
-      MEDALLION_MAX_INSTANCES: 20
-      MEDALLION_MIN_INSTANCES: 1
-      MEDALLION_TIMEOUT: 300s
-      TRANSFORMER_CLASS: Transformer
-      MEDALLION_SUBSCRIPTION: scraper-acme-raw-products-normalize-products
-      MEDALLION_TOPIC: scraper-acme-normalized-products
-    depends_on:
-      bootstrap:
-        condition: service_completed_successfully
-  store-raw-products:
-    build: .
-    command: python -m medallion.run.store
-    environment:
-      PUBSUB_EMULATOR_HOST: pubsub:8085
-      PUBSUB_PROJECT_ID: local-dev
-      MEDALLION_ROOT: /app/src
-      MEDALLION_CONCURRENCY: 10
-      MEDALLION_MAX_INSTANCES: 10
-      MEDALLION_MIN_INSTANCES: 0
-      MEDALLION_TIMEOUT: 300s
-      MEDALLION_SUBSCRIPTION: scraper-acme-raw-products-store-raw-products
-      LOCAL_OUTPUT_DIR: /app/data
-      FILE_STORAGE_TYPE: local
-    depends_on:
-      bootstrap:
-        condition: service_completed_successfully
     volumes:
     - ./.medallion-data:/app/data
-  store-normalized-products:
+    labels:
+      medallion.schedules: peak-hours=0/10 12 * * * (Europe/Copenhagen)
+  store-raw-dispatch-scada-csv-files:
     build: .
     command: python -m medallion.run.store
     environment:
       PUBSUB_EMULATOR_HOST: pubsub:8085
       PUBSUB_PROJECT_ID: local-dev
       MEDALLION_ROOT: /app/src
+      FILE_STORAGE_TYPE: local
       MEDALLION_CONCURRENCY: 10
       MEDALLION_MAX_INSTANCES: 10
       MEDALLION_MIN_INSTANCES: 0
       MEDALLION_TIMEOUT: 300s
-      MEDALLION_SUBSCRIPTION: scraper-acme-normalized-products-store-normalized-products
+      MEDALLION_SUBSCRIPTION: nemweb-dispatch-scada-raw-dispatch-scada-csv-files-store-raw-dispatch-scada-csv-files
       LOCAL_OUTPUT_DIR: /app/data
-      FILE_STORAGE_TYPE: local
     depends_on:
       bootstrap:
         condition: service_completed_successfully

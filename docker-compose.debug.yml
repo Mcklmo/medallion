@@ -1,0 +1,23 @@
+# docker-compose.debug.yml
+#
+# Debug overrides for stepping through extract-nemweb-dispatch-scada with
+# debugpy + VS Code. Kept separate so the main compose file stays clean.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up
+#
+# Then attach from VS Code with the "Attach: extract-nemweb-dispatch-scada"
+# launch config. The service pauses at startup (--wait-for-client) until
+# the debugger connects.
+
+services:
+  extract-nemweb-dispatch-scada:
+    command: >
+      sh -c "pip install debugpy &&
+      python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5678
+      --wait-for-client -m medallion.run.extractor"
+    ports:
+      - 5678:5678
+    volumes:
+      - ./medallion:/app/medallion
+      - ./example/nemweb:/app/src

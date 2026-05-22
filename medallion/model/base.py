@@ -57,26 +57,17 @@ class ProcessingStep[Out](ABC):
     def file_extension(self) -> str:
         pass
 
-    @property
-    @abstractmethod
-    def header_line(self) -> bytes:
-        pass
-
-    @abstractmethod
-    def write_row(self, output_data: Out) -> BytesIO:
-        pass
-
     @abstractmethod
     def write_output(self, output_data: Out) -> BytesIO:
+        pass
+
+    @abstractmethod
+    def read_bytes(self, data: BytesIO) -> Out:
         pass
 
     @property
     def name(self) -> str:
         return self.__class__.__name__
-
-    @abstractmethod
-    def read_bytes(self, data: BytesIO) -> Out:
-        pass
 
 
 class Writer[Out](ABC):

@@ -1,6 +1,7 @@
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
+from medallion.log import create_logger
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
 from medallion.resolve_classes import resolve_classes_from_names
@@ -124,13 +125,19 @@ class PipelineGraph(StrictModel):
     transformers: list[Transformer] = Field(default_factory=list)
 
     def model_post_init(self, context: Any) -> None:
+        logger = create_logger()
         schema_names = [s.name for s in self.schemas]
-        classes_schemas = resolve_classes_from_names(schema_names)
+        classes_schemas = resolve_classes_from_names(
+            schema_names,
+            logger=logger,
+        )
         classes_extractor = resolve_classes_from_names(
-            [e.class_ for e in self.extractors]
+            [e.class_ for e in self.extractors],
+            logger=logger,
         )
         classes_transformer = resolve_classes_from_names(
-            [t.class_ for t in self.transformers]
+            [t.class_ for t in self.transformers],
+            logger=logger,
         )
         schema_names = [s.name for s in self.schemas]
         name_to_schema = dict(zip(schema_names, classes_schemas))

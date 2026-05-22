@@ -1,6 +1,7 @@
 from logging import Logger
 from os import getenv
 from google.oauth2 import service_account
+from medallion.store.base import BlobStore
 from medallion.store.gcs import GCStorage
 from medallion.store.local import LocalStorage
 
@@ -12,11 +13,14 @@ def must_get_env(key: str) -> str:
     return value
 
 
+FILE_STORAGE_TYPE_ENV_VAR = "FILE_STORAGE_TYPE"
+
+
 def initialize_storage(
     output_dir: str,
     logger: Logger,
-) -> GCStorage | LocalStorage:
-    file_storage_type = must_get_env("FILE_STORAGE_TYPE")
+) -> BlobStore:
+    file_storage_type = must_get_env(FILE_STORAGE_TYPE_ENV_VAR)
     if file_storage_type == "local":
         return LocalStorage(
             output_dir=output_dir,

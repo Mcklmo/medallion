@@ -52,7 +52,7 @@ WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 COPY medallion/ /app/medallion/
-COPY example/ /app/src/
+COPY example/nemweb/ /app/src/
 
 RUN mkdir -p /app/data
 

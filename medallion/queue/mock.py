@@ -29,7 +29,7 @@ class MockQueue[T](Queue):
     def __exit__(self, *args):
         self._closed = True
 
-    def messages(self):
+    def read_stream(self):
         while not self._closed:
             try:
                 entry = (
@@ -60,7 +60,7 @@ class MockQueue[T](Queue):
         """Block until every put() (initial + published) has been ack/nack'd."""
         self._queue.join()
 
-    def publish(
+    def write(
         self,
         data: bytes,
         args: dict[

@@ -1,40 +1,45 @@
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable
+from logging import Logger
+from typing import Any, Callable
 
 from fastapi import FastAPI, BackgroundTasks
 from contextlib import asynccontextmanager
 
-import pendulum
-
 
 from medallion.log import create_logger
-from medallion.model.extractor import BaseExtractor
+from medallion.model.extractor import (
+    ARG_PREVIOUS_STEPS,
+    LOCAL_OUTPUT_DIR_ENV_VAR,
+    ORDERING_KEY_SEPARATOR,
+    BaseExtractor,
+)
 from medallion.queue.pubsub import PubSubQueue
 from medallion.resolve_classes import load_extractor_from_env
-from medallion.store.store import must_get_env
-from medallion.stream import Producer
+from medallion.store.base import BlobStore
+from medallion.store.store import initialize_storage, must_get_env
+from medallion.stream import QueueWriter
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load config, init publisher client once
-    app.state.processor = load_extractor_from_env()
+    logger = create_logger()
+    app.state.extractor = load_extractor_from_env(logger)
     app.state.queue_producer = PubSubQueue(
         project_id=must_get_env("PUBSUB_PROJECT_ID"),
         topic_id=must_get_env("MEDALLION_TOPIC"),
         logger=create_logger(),
     )
-    app.state.logger = create_logger()
+    app.state.logger = logger
+    app.state.store = initialize_storage(
+        output_dir=must_get_env(LOCAL_OUTPUT_DIR_ENV_VAR),
+        logger=logger,
+    )
 
     yield
-    await app.state.processor.close()
 
 
 app = FastAPI(lifespan=lifespan)
-ARG_EXECUTION_START_TIME = "execution_start_time"
-ARG_PREVIOUS_STEPS = "previous_steps"
-ARG_IS_CHUNK_END = "is_chunk_end"
-ORDERING_KEY_SEPARATOR = "|"
 
 
 def ordering_key_from_steps(steps: list[str]) -> str:
@@ -43,50 +48,37 @@ def ordering_key_from_steps(steps: list[str]) -> str:
 
 
 def extract_and_publish_background(
-    processor: BaseExtractor,
-    producer: Producer,
+    extractor: BaseExtractor,
+    queue_writer: QueueWriter,
+    store: BlobStore,
+    logger: Logger,
 ) -> Callable[
     [],
     None,
 ]:
     def task():
-        start_time = pendulum.now().format("YYYY-MM-DD_HH-mm-ssSSS")
-        data = iter(processor.extract())
-
-        try:
-            current_item = next(data)
-        except StopIteration:
-            return
-
         with ThreadPoolExecutor(max_workers=4) as executor:
-            for next_item in data:
-                args = {
-                    ARG_EXECUTION_START_TIME: start_time,
-                    ARG_PREVIOUS_STEPS: [
-                        processor.name,
-                    ],
-                    ARG_IS_CHUNK_END: False,
-                }
-                executor.submit(
-                    producer.publish,
-                    processor.write_output(current_item).getvalue(),
+
+            def write_to_queue(
+                output_data: bytes,
+                args: dict[
+                    str,
+                    Any,
+                ],
+            ) -> None:
+                return executor.submit(
+                    queue_writer.write,
+                    output_data,
                     args,
                     ordering_key_from_steps(args[ARG_PREVIOUS_STEPS]),
                 )
-                current_item = next_item
 
-            args = {
-                ARG_EXECUTION_START_TIME: start_time,
-                ARG_PREVIOUS_STEPS: [
-                    processor.name,
-                ],
-                ARG_IS_CHUNK_END: True,
-            }
-            executor.submit(
-                producer.publish,
-                processor.write_output(current_item).getvalue(),
-                args,
-                ordering_key_from_steps(args[ARG_PREVIOUS_STEPS]),
+            extractor.stream_output(
+                data=extractor.load_or_extract_data(
+                    logger,
+                    store,
+                ),
+                stream_message_bytes=write_to_queue,
             )
 
     return task
@@ -94,10 +86,15 @@ def extract_and_publish_background(
 
 @app.post("/")
 async def trigger(background: BackgroundTasks):
+    app.state.logger.info(
+        "Received trigger request, starting extraction and publishing in background"
+    )
     background.add_task(
         extract_and_publish_background(
-            app.state.processor,
+            app.state.extractor,
             app.state.queue_producer,
+            app.state.store,
+            app.state.logger,
         )
     )
 

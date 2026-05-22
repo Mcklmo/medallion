@@ -1,4 +1,8 @@
-from medallion.run.extractor import ARG_EXECUTION_START_TIME, ARG_PREVIOUS_STEPS
+from medallion.model.extractor import (
+    ARG_EXECUTION_START_TIME,
+    ARG_IS_CHUNK_END,
+    ARG_PREVIOUS_STEPS,
+)
 from medallion.stream import Message, Queue
 
 
@@ -12,6 +16,7 @@ import threading
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from logging import Logger
+from humanize import naturalsize
 
 
 class Listener(
@@ -31,7 +36,7 @@ class Listener(
         ),
     )
 
-    def run(self) -> None:
+    def listen(self) -> None:
         shutdown = False
 
         def handle_signal(signum, frame):
@@ -51,12 +56,14 @@ class Listener(
 
         with self.messages_in as consumer:
             try:
-                for message in consumer.messages():
+                for message in consumer.read_stream():
                     if shutdown:
                         self.logger.info("Shutting down listener")
                         break
 
-                    self.logger.info(f"Received message: {message}")
+                    self.logger.info(
+                        f"Received message of size[{naturalsize(len(message.data))}] with args[{message.args}]"
+                    )
 
                     self.message_executor.submit(
                         self._handle_message,
@@ -72,7 +79,7 @@ class Listener(
         message: Message,
     ) -> None:
         try:
-            is_chunk_end = message.args.get("is_chunk_end", False)
+            is_chunk_end = message.args.get(ARG_IS_CHUNK_END, False)
             start_time = message.args.get(ARG_EXECUTION_START_TIME)
             previous_steps = message.args.get(ARG_PREVIOUS_STEPS)
 
@@ -87,13 +94,21 @@ class Listener(
                 previous_steps,
             )
             queue.ack(message)
-        except Exception:
-            self.logger.exception(f"Error processing message: {message}")
+        except Exception as e:
+            self.logger.exception(
+                f"Error processing message: {message}",
+                exc_info=e,
+            )
+
             try:
                 queue.nack(message)
                 self.logger.info(f"nacked message: {message}")
-            except Exception:
-                self.logger.exception(f"Failed to nack message: {message}")
+            except Exception as e:
+                self.logger.exception(
+                    f"Failed to nack message: {message}",
+                    exc_info=e,
+                )
+
             raise
 
     @abstractmethod
@@ -101,7 +116,7 @@ class Listener(
         self,
         data: bytes,
         is_chunk_end: bool,
-        start_time: float,
+        start_time: str,
         previous_steps: list[str],
     ) -> None:
         pass

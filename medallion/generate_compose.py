@@ -34,6 +34,12 @@ from medallion.fleet.pipeline_graph_model import (
     Store,
     Transformer,
 )
+from medallion.model.extractor import (
+    FORCE_RUN_EXTRACTOR_ENV_VAR,
+    LOCAL_OUTPUT_DIR_ENV_VAR,
+    is_force_extractor_run_enabled,
+)
+from medallion.store.store import FILE_STORAGE_TYPE_ENV_VAR, must_get_env
 
 # --------------------------------------------------------------------------- #
 # Tunables — change these to match your repo's entrypoints / conventions.
@@ -74,7 +80,6 @@ STORE_EVERY_QUEUE = True
 # Local sink the store writes to in dev. Matches the volume mount target
 # in `build_store_service` (./.medallion-data:/app/data).
 STORE_OUTPUT_DIR = "/app/data"
-STORE_FILE_STORAGE_TYPE = "local"
 
 
 # --------------------------------------------------------------------------- #
@@ -133,6 +138,7 @@ def base_env(extra: dict[str, Any] | None = None) -> dict[str, Any]:
         "PUBSUB_EMULATOR_HOST": EMULATOR_HOST,
         "PUBSUB_PROJECT_ID": PROJECT_ID,
         "MEDALLION_ROOT": MEDALLION_ROOT,
+        FILE_STORAGE_TYPE_ENV_VAR: must_get_env(FILE_STORAGE_TYPE_ENV_VAR),
     }
     if extra:
         env.update(extra)
@@ -151,18 +157,26 @@ def runtime_to_env(rt: EffectiveRuntime) -> dict[str, Any]:
 
 
 def build_extractor_service(
-    graph: PipelineGraph, repo: str, ex: Extractor, host_port: int
+    graph: PipelineGraph,
+    repo: str,
+    ex: Extractor,
+    host_port: int,
 ) -> dict[str, Any]:
     rt = graph.effective_runtime(ex)
     env = base_env(runtime_to_env(rt))
+    env[FORCE_RUN_EXTRACTOR_ENV_VAR] = is_force_extractor_run_enabled()
     env["EXTRACTOR_CLASS"] = ex.class_
     env["MEDALLION_TOPIC"] = topic_name(repo, ex.writes_to)
+    env[LOCAL_OUTPUT_DIR_ENV_VAR] = STORE_OUTPUT_DIR
     svc: dict[str, Any] = {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['extractor']}",
         "environment": env,
         "ports": [f"{host_port}:{EXTRACTOR_INTERNAL_PORT}"],
         "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
+        "volumes": [
+            "./.medallion-data:/app/data"
+        ],  # the extractor needs the local sink to check for previous runs "cache"
     }
     # Schedules can't run as Cloud Scheduler locally; surface them as a hint.
     if ex.schedules:
@@ -192,7 +206,7 @@ def build_store_service(graph: PipelineGraph, repo: str, st: Store) -> dict[str,
     env = base_env(runtime_to_env(rt))
     env["MEDALLION_SUBSCRIPTION"] = subscription_name(repo, st.reads_from, st.name)
     env["LOCAL_OUTPUT_DIR"] = STORE_OUTPUT_DIR
-    env["FILE_STORAGE_TYPE"] = STORE_FILE_STORAGE_TYPE
+
     return {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['store']}",

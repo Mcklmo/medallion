@@ -8,9 +8,11 @@ from medallion.fleet.pipeline_graph_model import PipelineGraph
 
 import yaml
 
+from medallion.resolve_classes import get_medallion_root
+
 
 def configure_runtime():
-    root = os.getcwd()
+    root = get_medallion_root()
     with open(f"{root}/config.yml") as f:
         raw = yaml.safe_load(f)
 
