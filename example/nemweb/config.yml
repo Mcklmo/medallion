@@ -17,12 +17,12 @@ defaults:
     concurrency: 10
 
 schemas:
-  - name: BytesIO
+  - name: FileOutput
   - name: DispatchScadaModel
 
 queues:
   - name: raw-dispatch-scada-csv-files
-    schema: BytesIO
+    schema: FileOutput
   - name: processed-dispatch-scada-data
     schema: DispatchScadaModel
 

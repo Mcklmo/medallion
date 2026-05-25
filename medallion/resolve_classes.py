@@ -5,8 +5,6 @@ import os
 import sys
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
-from medallion.pipeline import PipeLine
-from medallion.store.base import BlobStore
 from medallion.store.store import must_get_env
 
 
@@ -76,25 +74,14 @@ def get_medallion_root():
 
 
 def load_classes(
-    store_output: BlobStore,
-    store_cache: BlobStore,
-    logger: Logger,
     class_names: list[str],
-) -> PipeLine:
+    logger: Logger,
+) -> list[type]:
     classes = resolve_classes_from_names(
         class_names,
         logger,
     )
-    extractor = classes[0]()
-    transformers = [cls() for cls in classes[1:]] if len(classes) > 1 else None
-
-    return PipeLine(
-        extractor=extractor,
-        transformers=transformers,
-        logger=logger,
-        store_output=store_output,
-        store_cache=store_cache,
-    )
+    return classes
 
 
 def resolve_classes_from_names(

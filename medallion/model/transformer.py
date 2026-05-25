@@ -45,11 +45,18 @@ class BaseStreamingTransformer[
         pass
 
     def transform(self, data: Iterator[In]) -> Iterator[Out]:
-        return [self.transform_one(item) for item in data]  # debug
         for item in data:
-            yield self.transform_one(item)
+            parsed = self.transform_one(item)
+            if isinstance(parsed, list):
+                yield from parsed
+                continue
 
-    def read_input_bytes(self, data: BytesIO) -> BytesIO:
+            yield parsed
+
+    def read_input_bytes(self, data: BytesIO | bytes) -> BytesIO:
+        if isinstance(data, bytes):
+            return BytesIO(data)
+
         return data
 
 

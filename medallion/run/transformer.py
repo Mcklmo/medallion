@@ -22,6 +22,9 @@ class TransformerListener(Listener):
         description="Store for messages that are currently being processed. Used for non-streaming transformers (because they require to see all messages before producing output).",
     )
 
+    def _after_listen(self) -> None:
+        self.messages_out.close()
+
     def process_message(
         self,
         data: bytes,

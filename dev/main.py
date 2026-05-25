@@ -79,6 +79,5 @@ if __name__ == "__main__":
             block_when_empty=False,
         ),
         logger=logger,
-        output_file_extension="jsonl",
     )
     listener.listen()

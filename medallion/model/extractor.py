@@ -2,7 +2,7 @@ from io import BytesIO
 from logging import Logger
 
 import pendulum
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from medallion.model.base import (
     BaseJSONStep,
@@ -34,6 +34,20 @@ def is_force_extractor_run_enabled():
 def generate_utc_timestamp_foldername():
     start_time = pendulum.now("utc").format(FOLDERNAME_DATETIME_FORMAT)
     return start_time
+
+
+class FileOutput(BaseModel):
+    content: bytes
+    is_full_file: bool = Field(
+        alias="is_full_file",
+        default=True,
+    )
+
+
+ARG_IS_FULL_FILE = FileOutput.model_fields["is_full_file"].alias
+assert (
+    ARG_IS_FULL_FILE == "is_full_file"
+), "The alias for is_full_file must be 'is_full_file'"
 
 
 class BaseExtractor[Out](
@@ -71,7 +85,11 @@ class BaseExtractor[Out](
             ARG_PREVIOUS_STEPS: [
                 self.name,
             ],
-            ARG_IS_CHUNK_END: False,
+            ARG_IS_CHUNK_END: getattr(
+                current_item,
+                ARG_IS_FULL_FILE,  # if the file is complete, the listener processing the message expects ARG_IS_CHUNK_END to be true.
+                False,
+            ),
         }
 
         for next_item in data:
@@ -137,8 +155,9 @@ class BaseExtractor[Out](
         )
 
         for filename in files_at_path:
+            downloaded_file = store.download_file(filename)
             output = self.read_bytes(
-                store.download_file(filename),
+                downloaded_file,
             )
             data.append(output)
 

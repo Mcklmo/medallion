@@ -1,6 +1,7 @@
 from logging import Logger
 from medallion.log import create_logger
-from medallion.model.extractor import is_force_extractor_run_enabled
+from medallion.pipeline import PipeLine
+from medallion.queue.mock import MockQueue
 from medallion.resolve_classes import (
     get_user_input,
     load_classes,
@@ -15,18 +16,27 @@ def medallion(logger: Logger) -> None:
         logger,
     )
 
-    pipe = load_classes(
+    classes = load_classes(
+        logger=logger,
+        class_names=user_input_classes,
+    )
+    assert len(classes) >= 1, "At least an extractor class must be provided"
+    transformer_instances = [c() for c in classes[1:]] if len(classes) > 1 else None
+    pipe = PipeLine(
+        queues=[
+            MockQueue(messages=[]) for _ in range(len(transformer_instances or []) + 1)
+        ],
+        extractor=classes[0](),
+        transformers=transformer_instances,
         store_output=store_output,
         store_cache=initialize_storage(
             must_get_env("LOCAL_CACHE_DIR"),
             logger,
         ),
         logger=logger,
-        class_names=user_input_classes,
     )
-    force_run_extractor = is_force_extractor_run_enabled()
 
-    output_previous = pipe.run(force_run_extractor=force_run_extractor)
+    pipe.run()
 
 
 def main() -> None:

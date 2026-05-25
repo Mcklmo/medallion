@@ -39,6 +39,14 @@ class QueueReader(ABC):
         Must be safe to call concurrently from multiple threads.
         """
 
+    @abstractmethod
+    def close(self) -> None:
+        """Signal `read_stream` to stop yielding and return.
+
+        Idempotent; safe to call from any thread. Does not release resources —
+        that still happens in `__exit__`.
+        """
+
 
 class QueueWriter(ABC):
     @abstractmethod

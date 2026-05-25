@@ -101,11 +101,15 @@ class PubSubQueue(Queue):
         )
 
     def read_stream(self) -> Iterator[Message]:
-        while not self._closed:
+        while True:
             try:
                 yield self._inbox.get(timeout=0.5)
             except _q.Empty:
-                continue
+                if self._closed:
+                    return
+
+    def close(self) -> None:
+        self._closed = True
 
     def ack(self, message: Message) -> None:
         self.logger.debug(

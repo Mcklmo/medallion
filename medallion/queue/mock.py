@@ -1,4 +1,5 @@
 import queue
+import threading
 from typing import Any, Iterable
 
 from medallion.stream import Queue, Message
@@ -15,10 +16,11 @@ class MockQueue[T](Queue):
         ] = (),
         block_when_empty: bool = True,
     ):
-        self._queue: queue.Queue = queue.Queue()
-
-        for data, args in messages:
-            self._queue.put((data, args, ""))
+        self._initial: list[tuple[bytes, dict[str, Any], str]] = [
+            (data, args, "") for data, args in messages
+        ]
+        self._subscribers: list[queue.Queue] = []
+        self._lock = threading.Lock()
 
         self._block = block_when_empty
         self._closed = False
@@ -30,35 +32,54 @@ class MockQueue[T](Queue):
         self._closed = True
 
     def read_stream(self):
-        while not self._closed:
-            try:
-                entry = (
-                    self._queue.get(timeout=0.1)
-                    if self._block
-                    else self._queue.get_nowait()
-                )
-                data, args, _ordering_key = entry
-                yield Message(
-                    data=data,
-                    args=args,
-                    raw_message=None,
-                )
-            except queue.Empty:
-                if not self._block:
-                    return
+        inbox: queue.Queue = queue.Queue()
+        with self._lock:
+            for entry in self._initial:
+                inbox.put(entry)
+
+            self._subscribers.append(inbox)
+
+        try:
+            while True:
+                try:
+                    entry = (
+                        inbox.get(timeout=0.1) if self._block else inbox.get_nowait()
+                    )
+                    data, args, _ordering_key = entry
+                    yield Message(
+                        data=data,
+                        args=args,
+                        raw_message=inbox,
+                        delivery_attempt=1,
+                    )
+                except queue.Empty:
+                    if self._closed or not self._block:
+                        return
+        finally:
+            with self._lock:
+                try:
+                    self._subscribers.remove(inbox)
+                except ValueError:
+                    pass
 
     def ack(self, message):
-        self._queue.task_done()
+        inbox: queue.Queue = message.raw_message
+        inbox.task_done()
 
     def nack(self, message):
-        self._queue.task_done()
+        inbox: queue.Queue = message.raw_message
+        inbox.task_done()
 
     def close(self) -> None:
         self._closed = True
 
     def wait_drained(self) -> None:
         """Block until every put() (initial + published) has been ack/nack'd."""
-        self._queue.join()
+        with self._lock:
+            inboxes = list(self._subscribers)
+
+        for inbox in inboxes:
+            inbox.join()
 
     def write(
         self,
@@ -72,4 +93,8 @@ class MockQueue[T](Queue):
         if self._closed:
             raise RuntimeError("Queue is closed")
 
-        self._queue.put((data, args, ordering_key))
+        with self._lock:
+            inboxes = list(self._subscribers)
+
+        for inbox in inboxes:
+            inbox.put((data, args, ordering_key))

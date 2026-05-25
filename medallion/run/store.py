@@ -1,13 +1,10 @@
 import csv
 from io import BytesIO, StringIO
 import json
-
-import pendulum
 from medallion.log import create_logger
 from medallion.queue.pubsub import PubSubQueue
 from medallion.run.listener import Listener
 from medallion.store.base import (
-    FOLDERNAME_DATETIME_FORMAT,
     BlobStore,
     build_timestamp_path_segments,
 )
@@ -17,7 +14,6 @@ from pydantic import Field
 
 class StorageListener(Listener):
     store: BlobStore
-    output_file_extension: str
     messages_hot_store: dict[
         str,
         list[bytes],
@@ -44,89 +40,19 @@ class StorageListener(Listener):
             return
 
         output_data = self.messages_hot_store.pop(destination_folder_path, []) + [data]
-        values: list[str] = []
-        header: str = ""
-        found_csv_file = False
-
-        def collect_json_value(
-            parsed_json: dict,
-            header: str,
-        ) -> None:
-            parsed_json = {key: value for key, value in sorted(parsed_json.items())}
-            _header = ",".join(list(parsed_json.keys()))
-
-            if not header:
-                header = _header
-
-            assert (
-                header == _header
-            ), f"Inconsistent header in output data: [{header}] vs [{_header}]"
-
-            value = ",".join([str(v) for v in parsed_json.values()])
-            values.append(value)
-
-            return header
-
         for i, row in enumerate(output_data):
             try:
-                parsed_json = json.loads(row)
-            except json.decoder.JSONDecodeError as e:
-                try:
-                    self.upload_csv_content(destination_folder_path, header, i, row)
-                    found_csv_file = True
-
-                    continue
-
-                except Exception as e:
-                    self.logger.error(
-                        f"Failed to parse row as JSON or CSV for {destination_folder_path}: {row[:1000]}...",
-                        exc_info=e,
-                    )
-                    continue
-
-            if isinstance(parsed_json, dict):
-                header = collect_json_value(parsed_json, header)
-            else:
-                assert isinstance(
-                    parsed_json, list
-                ), f"Unexpected JSON type in output data for {destination_folder_path}: {type(parsed_json)}"
-                for item in parsed_json:
-                    assert isinstance(
-                        item, dict
-                    ), f"Unexpected JSON item type in output data for {destination_folder_path}: {type(item)}"
-                    header = collect_json_value(item, header)
-
-        try:
-            assert (
-                values and header or (not values and not header)
-            ), f"Inconsistent state for {destination_folder_path}: header[{header}] values[{values[:5]}...]"
-
-            csv_output_content = "\n".join([header] + values)
-        except TypeError as e:
-            self.logger.error(
-                f"Failed to generate CSV content for path[{destination_folder_path}] with header[{header}] and values[{values}]",
-                exc_info=e,
-            )
-            return
-
-        if not csv_output_content:
-            if found_csv_file:
-                return
-
-            self.logger.warning(
-                f"No valid CSV content generated for {destination_folder_path}, skipping upload."
-            )
-            return
-
-        self.store.upload_file(
-            destination_path=f"{destination_folder_path}/data.csv",
-            content=BytesIO(csv_output_content.encode()),
-        )
+                json.loads(row)  # Check if it's valid JSON, if not treat as CSV
+                self.store.upload_file(
+                    destination_path=f"{destination_folder_path}/data.json",
+                    content=BytesIO(row),
+                )
+            except json.JSONDecodeError:
+                self.upload_csv_content(destination_folder_path, i, row)
 
     def upload_csv_content(
         self,
         destination_folder_path: str,
-        header: str,
         i: int,
         potential_csv_files: bytes,
     ) -> None:
@@ -136,14 +62,7 @@ class StorageListener(Listener):
                 delimiter=",",
             )
         )
-        _header = ",".join(reader[0])
-        if not header:
-            header = _header
-
-        assert (
-            header == _header
-        ), f"Inconsistent header in output data: [{header}] vs [{_header}]"
-
+        header = ",".join(reader[0])
         values = [",".join(r) for r in reader[1:]]
         csv_output_content = "\n".join(([header] if header else []) + values)
 
@@ -174,6 +93,5 @@ if __name__ == "__main__":
         ),
         max_retries=int(must_get_env("LISTENER_MAX_RETRIES")),
         logger=logger,
-        output_file_extension="jsonl",
     )
     listener.listen()

@@ -37,14 +37,21 @@ class Listener(
             max_workers=max_concurrent_messages,
         ),
     )
+    shutdown: bool = Field(
+        init=False,
+        default=False,
+    )
+
+    def request_shutdown(self) -> None:
+        self.shutdown = True
+        self.logger.info("Shutdown requested")
+        self.messages_in.close()
 
     def listen(self) -> None:
-        shutdown = False
-
         def handle_signal(signum, frame):
-            nonlocal shutdown
-            shutdown = True
+            self.shutdown = True
             self.logger.info("Shutdown requested")
+            self.messages_in.close()
 
         def handle_dump_signal(signum, frame):
             self.logger.info("Dumping all thread stacks")
@@ -61,7 +68,7 @@ class Listener(
         with self.messages_in as consumer:
             try:
                 for message in consumer.read_stream():
-                    if shutdown:
+                    if self.shutdown:
                         self.logger.info("Shutting down listener")
                         break
 
@@ -76,6 +83,10 @@ class Listener(
                     )
             finally:
                 self.message_executor.shutdown(wait=True)
+                self._after_listen()
+
+    def _after_listen(self) -> None:
+        """Hook for subclasses; runs once the listener has fully drained."""
 
     def _handle_message(
         self,
