@@ -5,7 +5,7 @@ import os
 import sys
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
-from medallion.store.store import must_get_env
+from medallion.store.base import must_get_env
 
 
 def resolve_class(

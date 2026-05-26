@@ -27,8 +27,8 @@ from google.oauth2 import service_account
 from google.pubsub import Topic
 import yaml
 from google.api_core import exceptions as gcp_exc
-from medallion.fleet.pipeline_graph_model import PipelineGraph
-from medallion.store.store import load_service_account_credentials
+from medallion.configure_entrypoint.pipeline_graph_model import PipelineGraph
+from medallion.store.base import load_service_account_credentials
 
 log = logging.getLogger("bootstrap")
 

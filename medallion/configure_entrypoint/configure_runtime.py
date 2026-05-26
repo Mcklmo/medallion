@@ -4,7 +4,7 @@ import json5
 
 import os
 
-from medallion.fleet.pipeline_graph_model import PipelineGraph
+from medallion.configure_entrypoint.pipeline_graph_model import PipelineGraph
 
 import yaml
 

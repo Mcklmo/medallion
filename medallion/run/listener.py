@@ -4,7 +4,7 @@ from medallion.model.extractor import (
     ARG_ITEM_INDEX,
     ARG_PREVIOUS_STEPS,
 )
-from medallion.stream import Message, Queue
+from medallion.queue.base import Message, Queue
 
 
 from pydantic import BaseModel, ConfigDict, Field

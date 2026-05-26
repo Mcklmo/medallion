@@ -6,10 +6,11 @@ from medallion.resolve_classes import (
     get_user_input,
     load_classes,
 )
-from medallion.store.store import initialize_storage, must_get_env
+from medallion.store.base import must_get_env
+from medallion.store.initialize_storage import initialize_storage
 
 
-def medallion(logger: Logger) -> None:
+def main(logger: Logger) -> None:
     user_input_classes = get_user_input()
     store_output = initialize_storage(
         must_get_env("LOCAL_OUTPUT_DIR"),
@@ -41,9 +42,5 @@ def medallion(logger: Logger) -> None:
     pipe.run()
 
 
-def main() -> None:
-    medallion(create_logger())
-
-
 if __name__ == "__main__":
-    main()
+    main(create_logger())

@@ -15,9 +15,9 @@ from medallion.model.extractor import (
 )
 from medallion.queue.pubsub import PubSubQueue
 from medallion.resolve_classes import load_extractor_from_env
-from medallion.store.base import BlobStore
-from medallion.store.store import initialize_storage, must_get_env
-from medallion.stream import QueueWriter
+from medallion.store.base import BlobStore, must_get_env
+from medallion.store.initialize_storage import initialize_storage
+from medallion.queue.base import QueueWriter
 
 
 @asynccontextmanager
@@ -47,7 +47,7 @@ def ordering_key_from_steps(steps: list[str]) -> str:
     return ORDERING_KEY_SEPARATOR.join(steps)
 
 
-def extract_and_publish_background(
+def extract_and_stream(
     extractor: BaseExtractor,
     queue_writer: QueueWriter,
     store: BlobStore,
@@ -98,7 +98,7 @@ async def trigger(background: BackgroundTasks):
         "Received trigger request, starting extraction and publishing in background"
     )
     background.add_task(
-        extract_and_publish_background(
+        extract_and_stream(
             app.state.extractor,
             app.state.queue_producer,
             app.state.store,

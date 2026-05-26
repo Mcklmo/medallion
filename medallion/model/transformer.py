@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from typing import Iterator
 
 from medallion.store.base import BlobStore
-from medallion.store.store import must_get_env
+from medallion.store.base import must_get_env
 
 
 class BaseTransformer[In, Out](

@@ -1,6 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor
-import hashlib
-from io import BytesIO
 from logging import Logger
 from typing import Any, Optional
 from medallion.model.transformer import BaseTransformer
@@ -8,45 +6,13 @@ from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import BaseStreamingTransformer
 from pydantic import BaseModel, ConfigDict, Field
 from medallion.queue.mock import MockQueue
-from medallion.run.extractor import extract_and_publish_background
+from medallion.run.extractor import extract_and_stream
 from medallion.run.store import StorageListener
 from medallion.run.transformer import TransformerListener
 from medallion.store.base import (
     BlobStore,
 )
-from medallion.stream import Queue
-
-
-def compute_content_hash(
-    content: BytesIO | list[BytesIO],
-) -> str:
-    hasher = hashlib.sha256()
-    CHUNK_SIZE = 8 * 1024  # 8 KB
-
-    if isinstance(content, list):
-        for c in content:
-            c.seek(0)
-            for chunk in iter(
-                lambda: c.read(CHUNK_SIZE),
-                b"",
-            ):
-                hasher.update(chunk)
-            c.seek(0)
-    else:
-        content.seek(0)
-        for chunk in iter(
-            lambda: content.read(CHUNK_SIZE),
-            b"",
-        ):
-            hasher.update(chunk)
-        content.seek(0)
-
-    return hasher.hexdigest()
-
-
-EXTRACTOR_TYPE_ASSERTION_MESSAGE = (
-    f"First class must be of type {BaseExtractor.__name__}"
-)
+from medallion.queue.base import Queue
 
 
 class PipeLine(BaseModel):
@@ -104,7 +70,7 @@ class PipeLine(BaseModel):
                 )
 
             try:
-                extract_and_publish_background(
+                extract_and_stream(
                     extractor=self.extractor,
                     queue_writer=extractor_output_queue,
                     store=self.store_output,

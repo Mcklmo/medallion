@@ -11,7 +11,7 @@ from medallion.resolve_classes import resolve_classes_from_names, resolve_user_p
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "cmd"))
 
-from medallion.medallion import medallion
+from medallion.medallion import main
 
 
 def _make_capture_logger() -> tuple[logging.Logger, StringIO]:
@@ -105,7 +105,7 @@ def local_storage_env(tmp_path, monkeypatch):
 def test_happy_path(user_package, local_storage_env, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["medallion", "FakeExtractor", "FakeTransformer"])
     logger, buf = _make_capture_logger()
-    medallion(logger)
+    main(logger)
     out = buf.getvalue()
     assert "FakeExtractor" in out
     assert "FakeTransformer" in out
@@ -114,20 +114,20 @@ def test_happy_path(user_package, local_storage_env, monkeypatch):
 def test_missing_class(user_package, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["medallion", "Nonexistent"])
     with pytest.raises(AssertionError, match="Nonexistent not found"):
-        medallion(_NULL_LOGGER)
+        main(_NULL_LOGGER)
 
 
 def test_missing_init(tmp_path, monkeypatch):
     monkeypatch.setenv("MEDALLION_ROOT", str(tmp_path))
     monkeypatch.setattr(sys, "argv", ["medallion", "Whatever"])
     with pytest.raises(AssertionError, match="No __init__.py"):
-        medallion(_NULL_LOGGER)
+        main(_NULL_LOGGER)
 
 
 def test_no_args(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["medallion"])
     with pytest.raises(SystemExit) as excinfo:
-        medallion(_NULL_LOGGER)
+        main(_NULL_LOGGER)
     assert excinfo.value.code == 2
 
 
@@ -137,7 +137,7 @@ def test_transformer_only_should_fail(user_package, monkeypatch):
         ValidationError,
         match=f"Input should be an instance of {BaseExtractor.__name__}",
     ):
-        medallion(_NULL_LOGGER)
+        main(_NULL_LOGGER)
 
 
 PACKAGE_BODY_TYPE_MISMATCH = PACKAGE_BODY.replace(
@@ -153,7 +153,7 @@ def test_transformer_input_type_mismatch(user_package, monkeypatch):
         ValidationError,
         match=r"Transformer FakeTransformer expects input of type <class 'int'>",
     ):
-        medallion(_NULL_LOGGER)
+        main(_NULL_LOGGER)
 
 
 def test_canonical_dotted_name_with_parent_package(tmp_path, monkeypatch):

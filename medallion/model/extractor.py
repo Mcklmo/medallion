@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Iterator
 
 from medallion.store.base import FOLDERNAME_DATETIME_FORMAT, BlobStore
-from medallion.store.store import must_get_env
+from medallion.store.base import must_get_env
 
 ARG_EXECUTION_START_TIME = "execution_start_time"
 ARG_PREVIOUS_STEPS = "previous_steps"

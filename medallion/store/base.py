@@ -1,34 +1,30 @@
+from os import getenv
 import re
 from abc import ABC, abstractmethod
 from io import BytesIO
 import pendulum
-from pydantic import BaseModel, Field, model_validator
-from typing import Optional
-from typing_extensions import Self
 
-
-class SourceDocumentLocation(BaseModel):
-    file_url: Optional[str] = Field(default=None)
-    file_local_path: Optional[str] = Field(default=None)
-
-    @model_validator(mode="after")
-    def check_passwords_match(self) -> Self:
-        assert (
-            self.file_url or self.file_local_path
-        ), "Must provide either file_url or file_local_path"
-        assert not (
-            self.file_url and self.file_local_path
-        ), "Cannot provide both file_url and file_local_path"
-
-        return self
-
+from google.oauth2 import service_account
 
 FOLDERNAME_DATETIME_FORMAT = "YYYY-MM-DDTHH-mm-ssSSS"
-
+FILE_STORAGE_TYPE_ENV_VAR = "FILE_STORAGE_TYPE"
 _LATEST_FILE_PATH_REGEX = re.compile(
     r"^(?P<rel>\d{4}/\d{2}/\d{2}/\d{2}/"
     r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\d{3})).*/.+$"
 )
+
+
+def must_get_env(key: str) -> str:
+    value = getenv(key)
+    assert value is not None, f"Required environment variable {key} is missing."
+
+    return value
+
+
+def load_service_account_credentials():
+    return service_account.Credentials.from_service_account_file(
+        must_get_env("GOOGLE_APPLICATION_CREDENTIALS")
+    )
 
 
 def build_timestamp_path_segments(start_time: str) -> list[str]:
@@ -52,18 +48,6 @@ def build_timestamp_path_segments(start_time: str) -> list[str]:
 
 class BlobStore(ABC):
     @abstractmethod
-    def get_file_location(
-        self,
-        relative_path: str,
-    ) -> SourceDocumentLocation:
-        """Given a relative path, return either a URL or local file path to the source document."""
-        pass
-
-    @abstractmethod
-    def file_exists(self, destination_path: str) -> bool:
-        pass
-
-    @abstractmethod
     def upload_file(
         self,
         destination_path: str,
@@ -76,19 +60,11 @@ class BlobStore(ABC):
         pass
 
     @abstractmethod
-    def list_files_with_prefix(self, prefix: str) -> list[str]:
-        pass
-
-    @abstractmethod
     def list_files_at(
         self,
         prefix: str,
         suffix: str | None = None,
     ) -> list[str]:
-        pass
-
-    @abstractmethod
-    def list_subfolders_at(self, prefix: str) -> list[str]:
         pass
 
     def find_latest_file_in_folder(

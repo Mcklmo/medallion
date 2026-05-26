@@ -2,7 +2,7 @@ import queue
 import threading
 from typing import Any, Iterable
 
-from medallion.stream import Queue, Message
+from medallion.queue.base import Queue, Message
 
 
 class MockQueue[T](Queue):

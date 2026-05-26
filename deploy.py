@@ -48,7 +48,7 @@ from google.api_core import exceptions as gcp_exceptions
 from google.cloud import pubsub_v1, run_v2, scheduler_v1
 from google.oauth2 import service_account
 
-from medallion.fleet.pipeline_graph_model import (
+from medallion.configure_entrypoint.pipeline_graph_model import (
     Extractor,
     PipelineGraph,
     Schedule,

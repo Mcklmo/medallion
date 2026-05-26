@@ -12,8 +12,8 @@ from medallion.run.extractor import (
     ARG_PREVIOUS_STEPS,
     ordering_key_from_steps,
 )
-from medallion.store.store import must_get_env
-from medallion.stream import Queue
+from medallion.store.base import must_get_env
+from medallion.queue.base import Queue
 from pydantic import Field
 
 

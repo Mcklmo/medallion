@@ -6,7 +6,7 @@ from typing import Any, Iterator
 
 from google.cloud import pubsub_v1
 
-from medallion.stream import Message, Queue
+from medallion.queue.base import Message, Queue
 
 
 class PubSubQueue(Queue):

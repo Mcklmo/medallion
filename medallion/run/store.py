@@ -7,8 +7,9 @@ from medallion.run.listener import Listener
 from medallion.store.base import (
     BlobStore,
     build_timestamp_path_segments,
+    must_get_env,
 )
-from medallion.store.store import initialize_storage, must_get_env
+from medallion.store.initialize_storage import initialize_storage
 from pydantic import Field
 
 
