@@ -147,4 +147,4 @@ def build_processor_from_name(
         len(_processors) == 1
     ), f"Expected exactly one processor, got {len(_processors)}"
 
-    return _processors[0]()
+    return _processors[0](logger)

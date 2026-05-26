@@ -103,14 +103,20 @@ class PipeLine(BaseModel):
                     ).listen
                 )
 
-            extract_and_publish_background(
-                extractor=self.extractor,
-                queue_writer=extractor_output_queue,
-                store=self.store_output,
-                logger=self.logger,
-            )()
-
-            extractor_output_queue.close()
+            try:
+                extract_and_publish_background(
+                    extractor=self.extractor,
+                    queue_writer=extractor_output_queue,
+                    store=self.store_output,
+                )()
+            finally:
+                # Close every queue so all listener loops terminate, even if
+                # extraction failed partway through. Without this, run()'s
+                # ThreadPoolExecutor.__exit__ -> shutdown(wait=True) would
+                # block forever on listeners stuck reading from open queues,
+                # and the real exception would never propagate out of run().
+                for q in self.queues:
+                    q.close()
 
     def model_post_init(self, context: Any) -> None:
         assert (

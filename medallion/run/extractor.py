@@ -1,5 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor
-from logging import Logger
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable
 
 from fastapi import FastAPI, BackgroundTasks
@@ -12,6 +11,7 @@ from medallion.model.extractor import (
     LOCAL_OUTPUT_DIR_ENV_VAR,
     ORDERING_KEY_SEPARATOR,
     BaseExtractor,
+    Streamer,
 )
 from medallion.queue.pubsub import PubSubQueue
 from medallion.resolve_classes import load_extractor_from_env
@@ -51,35 +51,43 @@ def extract_and_publish_background(
     extractor: BaseExtractor,
     queue_writer: QueueWriter,
     store: BlobStore,
-    logger: Logger,
 ) -> Callable[
     [],
     None,
 ]:
     def task():
         with ThreadPoolExecutor(max_workers=4) as executor:
+            futures: list[Future] = []
 
-            def write_to_queue(
-                output_data: bytes,
-                args: dict[
-                    str,
-                    Any,
-                ],
-            ) -> None:
-                return executor.submit(
-                    queue_writer.write,
-                    output_data,
-                    args,
-                    ordering_key_from_steps(args[ARG_PREVIOUS_STEPS]),
-                )
+            class QueueStreamer(Streamer):
+                def stream(
+                    self,
+                    output_data: bytes,
+                    args: dict[
+                        str,
+                        Any,
+                    ],
+                ) -> None:
+                    future = executor.submit(
+                        queue_writer.write,
+                        output_data,
+                        args,
+                        ordering_key_from_steps(args[ARG_PREVIOUS_STEPS]),
+                    )
 
-            extractor.stream_output(
-                data=extractor.load_or_extract_data(
-                    logger,
+                    futures.append(future)
+
+            try:
+                extractor.stream_output(
                     store,
-                ),
-                stream_message_bytes=write_to_queue,
-            )
+                    streamer=QueueStreamer(),
+                )
+            finally:
+                # Surface any exceptions from the write tasks, even if
+                # stream_output raised. Retrieving every result ensures a
+                # failed write isn't silently swallowed.
+                for future in futures:
+                    future.result()
 
     return task
 
@@ -94,7 +102,6 @@ async def trigger(background: BackgroundTasks):
             app.state.extractor,
             app.state.queue_producer,
             app.state.store,
-            app.state.logger,
         )
     )
 

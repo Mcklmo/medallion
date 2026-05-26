@@ -21,12 +21,14 @@ def medallion(logger: Logger) -> None:
         class_names=user_input_classes,
     )
     assert len(classes) >= 1, "At least an extractor class must be provided"
-    transformer_instances = [c() for c in classes[1:]] if len(classes) > 1 else None
+    transformer_instances = (
+        [c(logger) for c in classes[1:]] if len(classes) > 1 else None
+    )
     pipe = PipeLine(
         queues=[
             MockQueue(messages=[]) for _ in range(len(transformer_instances or []) + 1)
         ],
-        extractor=classes[0](),
+        extractor=classes[0](logger),
         transformers=transformer_instances,
         store_output=store_output,
         store_cache=initialize_storage(

@@ -1,7 +1,7 @@
 from typing import Any, Iterable
 
 from medallion.log import create_logger
-from medallion.model.extractor import BaseExtractor
+from medallion.model.extractor import BaseExtractor, Streamer
 from medallion.queue.mock import MockQueue
 from medallion.resolve_classes import load_extractor_from_env
 
@@ -34,26 +34,24 @@ def extract_and_format_messages(
         ]
     ] = []
 
-    def collect_message(
-        output_data: bytes,
-        args: dict[
-            str,
-            Any,
-        ],
-    ) -> None:
-        messages.append(
-            (
-                output_data,
-                args,
+    class MockStreamer(Streamer):
+        def collect_message(
+            output_data: bytes,
+            args: dict[
+                str,
+                Any,
+            ],
+        ) -> None:
+            messages.append(
+                (
+                    output_data,
+                    args,
+                )
             )
-        )
 
     extractor.stream_output(
-        data=extractor.load_or_extract_data(
-            logger,
-            store,
-        ),
-        stream_message_bytes=collect_message,
+        store,
+        streamer=MockStreamer(),
     )
 
     return messages if messages else None

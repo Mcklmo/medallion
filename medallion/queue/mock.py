@@ -71,6 +71,7 @@ class MockQueue[T](Queue):
         inbox.task_done()
 
     def close(self) -> None:
+        self.wait_drained()
         self._closed = True
 
     def wait_drained(self) -> None:

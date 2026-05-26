@@ -1,5 +1,9 @@
 from medallion.log import create_logger
-from medallion.model.extractor import ARG_EXECUTION_START_TIME, ARG_IS_CHUNK_END
+from medallion.model.extractor import (
+    ARG_EXECUTION_START_TIME,
+    ARG_IS_CHUNK_END,
+    ARG_ITEM_INDEX,
+)
 from medallion.queue.pubsub import PubSubQueue
 from medallion.resolve_classes import load_transformer_from_env
 from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
@@ -31,12 +35,14 @@ class TransformerListener(Listener):
         is_chunk_end: bool,
         start_time: float,
         previous_steps: list[str],
+        item_index: int,
     ) -> None:
         transformer = self.transformer
         args = {
             ARG_EXECUTION_START_TIME: start_time,
             ARG_PREVIOUS_STEPS: previous_steps + [transformer.name],
             ARG_IS_CHUNK_END: is_chunk_end,
+            ARG_ITEM_INDEX: item_index,
         }
 
         if isinstance(transformer, BaseStreamingTransformer):

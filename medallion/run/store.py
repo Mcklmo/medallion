@@ -29,6 +29,7 @@ class StorageListener(Listener):
         is_chunk_end: bool,
         start_time: str,
         previous_steps: list[str],
+        item_index: int,
     ) -> None:
         destination_path_elements = (
             previous_steps + build_timestamp_path_segments(start_time) + [start_time]
@@ -41,19 +42,21 @@ class StorageListener(Listener):
 
         output_data = self.messages_hot_store.pop(destination_folder_path, []) + [data]
         for i, row in enumerate(output_data):
+            file_prefix = f"{item_index}_{i}"
+
             try:
                 json.loads(row)  # Check if it's valid JSON, if not treat as CSV
                 self.store.upload_file(
-                    destination_path=f"{destination_folder_path}/data.json",
+                    destination_path=f"{destination_folder_path}/{file_prefix}.json",
                     content=BytesIO(row),
                 )
             except json.JSONDecodeError:
-                self.upload_csv_content(destination_folder_path, i, row)
+                self.upload_csv_content(destination_folder_path, file_prefix, row)
 
     def upload_csv_content(
         self,
         destination_folder_path: str,
-        i: int,
+        file_prefix: str,
         potential_csv_files: bytes,
     ) -> None:
         reader = list(
@@ -67,7 +70,7 @@ class StorageListener(Listener):
         csv_output_content = "\n".join(([header] if header else []) + values)
 
         self.store.upload_file(
-            destination_path=f"{destination_folder_path}/{i}.csv",
+            destination_path=f"{destination_folder_path}/{file_prefix}.csv",
             content=BytesIO(csv_output_content.encode()),
         )
 

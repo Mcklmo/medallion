@@ -1,4 +1,5 @@
 from io import BytesIO
+from logging import Logger
 from pydantic import BaseModel
 
 from medallion.model.base import (
@@ -23,6 +24,12 @@ class BaseTransformer[In, Out](
     Reader[In],
     ABC,
 ):
+    def __init__(
+        self,
+        logger: Logger,
+    ):
+        self.logger = logger
+
     @abstractmethod
     def transform(self, data: Iterator[In]) -> Iterator[Out]:
         pass
@@ -40,6 +47,12 @@ class BaseStreamingTransformer[
     Reader[In],
     ABC,
 ):
+    def __init__(
+        self,
+        logger: Logger,
+    ):
+        self.logger = logger
+
     @abstractmethod
     def transform_one(self, data: In) -> Out:
         pass
@@ -92,28 +105,3 @@ class BasePydanticStreamingTransformer[
     ABC,
 ):
     pass
-
-
-class StoringTransformer[In](
-    BaseTransformer[
-        In,
-        In,
-    ],
-):
-    def __init__(
-        self,
-        store: BlobStore,
-    ):
-        self.store = store
-        self.output_folder_name = must_get_env("OUTPUT_FOLDER_NAME")
-
-    def transform(
-        self,
-        data: list[In],
-    ) -> list[In]:
-        self.store.upload_file(
-            f"{self.output_folder_name}/data.json",
-            BytesIO(json.dumps(data).encode()),
-        )
-
-        return []

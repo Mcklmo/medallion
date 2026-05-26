@@ -1,8 +1,9 @@
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from io import BytesIO
+from itertools import islice
 from typing import Generator, Iterator
 from zipfile import ZipFile
 from bs4 import BeautifulSoup
-from medallion.log import create_logger
 from medallion.model.extractor import BaseExtractor
 import requests
 
@@ -10,50 +11,77 @@ from medallion.model.extractor import FileOutput
 
 
 class DispatchScadaExtractor(BaseExtractor[FileOutput]):
-    logger = create_logger()
-    max_files_per_run = 1
+    max_files_per_run = 20
+    max_concurrent_downloads = 20
+    timeout = 5
 
     def extract(self) -> Iterator[FileOutput]:
-        r = requests.get("https://www.nemweb.com.au/REPORTS/CURRENT/Dispatch_SCADA/")
-        r.raise_for_status()
+        session = requests.Session()
 
-        soup = BeautifulSoup(r.text, "html.parser")
-        links = soup.find_all("a")
-        files_count = 0
-        breakout = False
+        listing = session.get(
+            "https://www.nemweb.com.au/REPORTS/CURRENT/Dispatch_SCADA/",
+            timeout=self.timeout,
+        )
+        listing.raise_for_status()
 
-        for i, link in enumerate(sorted(links, key=lambda x: x["href"], reverse=True)):
-            if breakout:
-                break
+        links = BeautifulSoup(listing.text, "html.parser").find_all("a")
+        urls = [
+            f"https://www.nemweb.com.au/{link['href']}"
+            for link in sorted(links, key=lambda x: x["href"], reverse=True)
+        ]
 
-            prepped = requests.Request(
-                "GET", f"https://www.nemweb.com.au/{link['href']}"
-            ).prepare()
-            self.logger.info(
-                f"Extract from url ({i+1}/{len(links)} or {self.max_files_per_run} files): {prepped.url}"
+        def _download(url: str) -> requests.Response:
+            self.logger.info(f"Downloading {url}...")
+
+            response = session.get(
+                url,
+                timeout=self.timeout,
             )
 
-            response_file = requests.Session().send(prepped)
-            response_file.raise_for_status()
+            return response
 
-            with ZipFile(BytesIO(response_file.content)) as zip_file:
-                extracted_file_names = zip_file.namelist()
+        files_count = 0
+        url_iter = iter(urls)
+        executor = ThreadPoolExecutor(max_workers=self.max_concurrent_downloads)
+        in_flight: dict = {
+            executor.submit(_download, u): u
+            for u in islice(url_iter, self.max_concurrent_downloads)
+        }
 
-                for j, file in enumerate(extracted_file_names):
-                    if breakout:
-                        break
-
-                    if file.lower().endswith(".csv"):
-                        files_count += 1
-                        breakout = files_count >= self.max_files_per_run
-
-                        self.logger.info(
-                            f"Extracting file ({j+1}/{len(extracted_file_names)}): {file}"
+        try:
+            while in_flight:
+                done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    url = in_flight.pop(fut)
+                    response = fut.result()
+                    if response.status_code == 403:
+                        self.logger.warning(
+                            f"Stopping scraping after ({files_count}/{len(urls)} or {self.max_files_per_run}) files due to 403 response: {url}"
                         )
+                        return
 
-                        yield FileOutput(
-                            content=zip_file.read(file),
-                        )
+                    response.raise_for_status()
+
+                    with ZipFile(BytesIO(response.content)) as zip_file:
+                        for member in zip_file.namelist():
+                            if not member.lower().endswith(".csv"):
+                                continue
+
+                            files_count += 1
+                            self.logger.info(
+                                f"Yielding csv ({files_count}/{len(urls)} or {self.max_files_per_run}) from {url}: {member}"
+                            )
+
+                            yield FileOutput(content=zip_file.read(member))
+
+                            if files_count >= self.max_files_per_run:
+                                return
+
+                    next_url = next(url_iter, None)
+                    if next_url is not None:
+                        in_flight[executor.submit(_download, next_url)] = next_url
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
         assert files_count > 0, "No CSV file found in the ZIP archive."
 

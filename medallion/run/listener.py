@@ -1,6 +1,7 @@
 from medallion.model.extractor import (
     ARG_EXECUTION_START_TIME,
     ARG_IS_CHUNK_END,
+    ARG_ITEM_INDEX,
     ARG_PREVIOUS_STEPS,
 )
 from medallion.stream import Message, Queue
@@ -97,6 +98,7 @@ class Listener(
             is_chunk_end = message.args.get(ARG_IS_CHUNK_END, False)
             start_time = message.args.get(ARG_EXECUTION_START_TIME)
             previous_steps = message.args.get(ARG_PREVIOUS_STEPS)
+            item_index = message.args.get(ARG_ITEM_INDEX)
 
             assert (
                 start_time and previous_steps
@@ -107,6 +109,7 @@ class Listener(
                 is_chunk_end,
                 start_time,
                 previous_steps,
+                item_index,
             )
             queue.ack(message)
         except Exception as e:
@@ -152,5 +155,6 @@ class Listener(
         is_chunk_end: bool,
         start_time: str,
         previous_steps: list[str],
+        item_index: int,
     ) -> None:
         pass
