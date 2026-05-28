@@ -9,12 +9,16 @@ import yaml
 from medallion.configure_entrypoint.pipeline_graph_model import PipelineGraph
 from medallion.resolve_classes import get_medallion_root
 
+DEFAULT_CONFIG_NAME = Path(f"{get_medallion_root()}/config.yml")
+
 
 def load_config(path: Path | None = None) -> PipelineGraph:
     if path is None:
-        path = Path(f"{get_medallion_root()}/config.yml")
+        path = DEFAULT_CONFIG_NAME
+
     raw = yaml.safe_load(path.read_text())
     ignored_stores = raw.pop("stores", None)
+
     if ignored_stores:
         names = [s.get("name") for s in ignored_stores]
         print(
@@ -22,6 +26,7 @@ def load_config(path: Path | None = None) -> PipelineGraph:
             "stores are generated automatically, one per queue.",
             file=sys.stderr,
         )
+
     return PipelineGraph.model_validate(raw)
 
 

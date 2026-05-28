@@ -26,7 +26,10 @@ from typing import Any
 
 import yaml
 
-from medallion.configure_entrypoint.configure_runtime import load_config
+from medallion.configure_entrypoint.configure_runtime import (
+    DEFAULT_CONFIG_NAME,
+    load_config,
+)
 from medallion.configure_entrypoint.pipeline_graph_model import (
     EffectiveRuntime,
     Extractor,
@@ -44,7 +47,11 @@ from medallion.configure_entrypoint.resource_names import (
 from medallion.model.extractor import (
     FORCE_RUN_EXTRACTOR_ENV_VAR,
 )
-from medallion.resolve_classes import EXTRACTOR_CLASS_ENV_VAR, TRANSFORMER_CLASS_ENV_VAR
+from medallion.resolve_classes import (
+    EXTRACTOR_CLASS_ENV_VAR,
+    TRANSFORMER_CLASS_ENV_VAR,
+    get_medallion_root,
+)
 from medallion.run.extractor import (
     API_KEY_ENV,
     GOOGLE_CLOUD_PROJECT_ENV_VAR,
@@ -336,18 +343,18 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("config", type=Path, help="path to config.yml")
+    config = DEFAULT_CONFIG_NAME
     ap.add_argument("-o", "--output", type=Path, default=Path("docker-compose.yml"))
     args = ap.parse_args()
 
-    graph = load_config(args.config)
+    graph = load_config(config)
     compose = generate(graph)
 
     header = (
         "# AUTO-GENERATED from {src} by generate_compose.py — do not edit by hand.\n"
         "# Stores are synthesised (one per queue); any stores: block in the\n"
         "# config is ignored. Edit the config or the generator, then regenerate.\n"
-    ).format(src=args.config.name)
+    ).format(src=config.name)
 
     with args.output.open("w") as fh:
         fh.write(header)

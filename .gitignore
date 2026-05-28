@@ -8,3 +8,4 @@ build/
 .DS_Store
 medallion-test-628d97bbe221.json
 .medallion-data/*
+docker-compose.debug.yml

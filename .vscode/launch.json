@@ -36,7 +36,7 @@
             "justMyCode": false
         },
         {
-            "name": "Configure runtime (example)",
+            "name": "Configure VS Code Debugger",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/medallion/configure_entrypoint/configure_runtime.py",
@@ -82,9 +82,6 @@
             "request": "launch",
             "module": "medallion.configure_entrypoint.generate_docker_compose",
             "python": "${command:python.interpreterPath}",
-            "args": [
-                "example/nemweb/config.yml"
-            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "justMyCode": false

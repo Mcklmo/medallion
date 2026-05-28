@@ -14,14 +14,18 @@ Medallion is a Python library that reduces the code developers need to change to
 pip install medallion-pipeline
 ```
 
-The distribution is published as `medallion-pipeline`; the Python import name is `medallion`. Python 3.12+ required.
+The distribution is published as `medallion-pipeline`; the Python import name and CLI tool name is `medallion`. Python 3.12+ required.
+
+## Usage
+
+Refer to [usage](doc/usage/usage.md).
 
 ## Core concepts
 
-- **Extractor** — produces the initial data. Subclass [`BaseExtractor[Out]`](medallion/base.py) (or [`BaseJSONExtractor[Out]`](medallion/base.py) for JSON output) and implement `extract()`.
-- **Transformer** — consumes the previous step's output and produces a new one. Subclass [`BaseTransformer[In, Out]`](medallion/base.py) (or [`BaseJSONTransformer`](medallion/base.py) / [`BasePydanticTransformer`](medallion/base.py)) and implement `transform()`.
-- **Queues** – Extractors send to a queue and Transformers read from a queue and send to another queue. Queues are typed and processors (Extractor or Transformer) reading from and/or writing to queues must match the queue's type. Extractors only have an output type, Transformers have input and output types. The library supports a mock-in-memory queue and GCP Pub/Sub. To roll your own, implement the [`Queue` interface](medallion/queue/base.py).
-- **Store** – is attached to each queue automatically – you don't need to write any code to do that. A Store saves the output of each Extractor and Transformer either on local disc or in a GCP Storage Bucket. To roll your own, implement the [`BlobStore` interface](medallion/store/base.py).
+- **Extractor** — produces the initial data and sends to a `Queue`. You implement a class that inherits from [`BaseExtractor[Out]`](medallion/base.py) and implement `extract(self) -> Iterator[Out]`.
+- **Transformer** — consumes the previous step's output from a `Queue` and sends transformed output to a different queue. Subclass [`BaseTransformer[In, Out]`](medallion/base.py) and implement `transform(self, data: Iterator[In]) -> Iterator[Out]`. If you need streaming, you need to inherit from `BaseStreamingTransformer[In, Out]` and implement `transform_one(self, data: In) -> Out` instead.
+- **Queues** – Queues are typed and processors (Extractor or Transformer) must match the queue's type in their corresponding `In` and/or `Out` types. The library supports a mock-in-memory queue and GCP Pub/Sub. To roll your own, implement the [`Queue` interface](medallion/queue/base.py).
+- **Store** – is attached to each queue automatically – you don't need to write any code to do that. A Store reads from a queue and stores the data. The library has built-in support for storage on a local disc or GCP Storage Bucket. To roll your own, implement the [`BlobStore` interface](medallion/store/base.py).
 - **Orchestration** – you tie everything together in a `config.yml` file. Here you define data types, queues, extractors and transformers, and which queues the processors read and write to.
 
 ## Contributing
