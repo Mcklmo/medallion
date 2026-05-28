@@ -13,11 +13,9 @@ from medallion.run.extractor import (
     GOOGLE_CLOUD_PROJECT_ENV_VAR,
     ordering_key_from_steps,
 )
-from medallion.store.base import must_get_env
+from medallion.store.base import must_get_env, MEDALLION_TOPIC_ENV
 from medallion.queue.base import Queue
 from pydantic import Field
-
-from medallion.store.base import MEDALLION_TOPIC_ENV
 
 
 class TransformerListener(Listener):

@@ -31,6 +31,14 @@ def must_get_env(key: str) -> str:
     return value
 
 
+def get_env_or_default(key: str, default: str) -> str:
+    value = getenv(key)
+    if value is None:
+        return default
+
+    return value
+
+
 def load_service_account_credentials():
     try:
         google_application_credentials_path = must_get_env(

@@ -65,7 +65,6 @@ from medallion.run.extractor import (
 from medallion.run.listener import LISTENER_MAX_RETRIES_ENV_VAR
 from medallion.store.initialize_storage import (
     GCS_BUCKET_ENV_VAR,
-    LOCAL_OUTPUT_DIR_ENV_VAR,
 )
 from medallion.resolve_classes import (
     EXTRACTOR_CLASS_ENV_VAR,

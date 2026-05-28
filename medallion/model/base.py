@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from io import BytesIO
 import json
-import logging
 from typing import Generator, Iterator, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel

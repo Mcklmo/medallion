@@ -1,6 +1,7 @@
 from medallion.store.base import (
     FILE_STORAGE_TYPE_ENV_VAR,
     BlobStore,
+    get_env_or_default,
     load_service_account_credentials,
     must_get_env,
 )
@@ -18,16 +19,23 @@ FILE_STORAGE_LOCAL = "local"
 
 def initialize_storage(
     logger: Logger,
-    local_output_dir: str | None = None,
+    local_output_dir: (
+        str | None
+    ) = None,  # can be overridden to create multiple stores with multiple output folder locations
 ) -> "BlobStore":
     file_storage_type = must_get_env(FILE_STORAGE_TYPE_ENV_VAR)
     if file_storage_type == FILE_STORAGE_LOCAL:
+        output_dir = (
+            get_env_or_default(
+                LOCAL_OUTPUT_DIR_ENV_VAR,
+                ".medallion-data",
+            )
+            if local_output_dir is None
+            else local_output_dir
+        )
+
         return LocalStorage(
-            output_dir=(
-                must_get_env(LOCAL_OUTPUT_DIR_ENV_VAR)
-                if local_output_dir is None
-                else local_output_dir
-            ),
+            output_dir=output_dir,
             logger=logger,
         )
 
