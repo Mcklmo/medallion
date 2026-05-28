@@ -5,7 +5,7 @@
 
 ```bash
 medallion start MY_NEW_PROJECT_NAME
-poetry install --with dev
+poetry install --with dev use python13
 ```
 
 Creates boilerplate for your new project and sets up an example file structure.
