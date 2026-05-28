@@ -13,7 +13,6 @@ from medallion.store.initialize_storage import initialize_storage
 def main(logger: Logger) -> None:
     user_input_classes = get_user_input()
     store_output = initialize_storage(
-        must_get_env("LOCAL_OUTPUT_DIR"),
         logger,
     )
 
@@ -33,8 +32,8 @@ def main(logger: Logger) -> None:
         transformers=transformer_instances,
         store_output=store_output,
         store_cache=initialize_storage(
-            must_get_env("LOCAL_CACHE_DIR"),
             logger,
+            local_output_dir=must_get_env("LOCAL_CACHE_DIR"),
         ),
         logger=logger,
     )

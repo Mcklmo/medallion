@@ -11,15 +11,21 @@ from medallion.model.extractor import FileOutput
 
 
 class DispatchScadaExtractor(BaseExtractor[FileOutput]):
-    max_files_per_run = 20
+    max_files_per_run = 1
     max_concurrent_downloads = 20
     timeout = 5
 
     def extract(self) -> Iterator[FileOutput]:
         session = requests.Session()
 
-        listing = session.get(
+        prepped = requests.Request(
+            "GET",
             "https://www.nemweb.com.au/REPORTS/CURRENT/Dispatch_SCADA/",
+        ).prepare()
+        self.logger.info(f"Getting file urls from {prepped.url}")
+
+        listing = session.send(
+            prepped,
             timeout=self.timeout,
         )
         listing.raise_for_status()

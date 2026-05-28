@@ -69,8 +69,7 @@ def resolve_user_package(logger: Logger) -> str:
 
 
 def get_medallion_root():
-    MEDALLION_ROOT = os.getenv(MEDALLION_ROOT_ENV) or os.getcwd() + "/medallion"
-    return MEDALLION_ROOT
+    return must_get_env(MEDALLION_ROOT_ENV)
 
 
 def load_classes(
@@ -100,10 +99,13 @@ def resolve_classes_from_names(
     return classes
 
 
+EXTRACTOR_CLASS_ENV_VAR = "EXTRACTOR_CLASS"
+
+
 def load_extractor_from_env(
     logger: Logger,
 ) -> BaseExtractor:
-    processor_name = must_get_env("EXTRACTOR_CLASS")
+    processor_name = must_get_env(EXTRACTOR_CLASS_ENV_VAR)
     processor = build_processor_from_name(
         processor_name,
         logger,
@@ -117,10 +119,13 @@ def load_extractor_from_env(
     return processor
 
 
+TRANSFORMER_CLASS_ENV_VAR = "TRANSFORMER_CLASS"
+
+
 def load_transformer_from_env(
     logger: Logger,
 ) -> BaseTransformer | BaseStreamingTransformer:
-    transformer_name = must_get_env("TRANSFORMER_CLASS")
+    transformer_name = must_get_env(TRANSFORMER_CLASS_ENV_VAR)
     transformer = build_processor_from_name(
         transformer_name,
         logger,

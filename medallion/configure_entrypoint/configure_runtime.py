@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import json5
 
@@ -11,12 +12,13 @@ import yaml
 from medallion.resolve_classes import get_medallion_root
 
 
-def configure_runtime():
-    root = get_medallion_root()
-    with open(f"{root}/config.yml") as f:
-        raw = yaml.safe_load(f)
+def load_config() -> PipelineGraph:
+    path = Path(f"{get_medallion_root()}/config.yml")
+    return PipelineGraph.model_validate(yaml.safe_load(path.read_text()))
 
-    pipeline_graph = PipelineGraph.model_validate(raw)
+
+def configure_runtime():
+    pipeline_graph = load_config()
     pipelines: list[list[str]] = pipeline_graph.get_pipeline_names()
 
     print("Pipelines to execute:")

@@ -23,7 +23,6 @@ ARG_PREVIOUS_STEPS = "previous_steps"
 ARG_IS_CHUNK_END = "is_chunk_end"
 ARG_ITEM_INDEX = "item_index"
 ORDERING_KEY_SEPARATOR = "|"
-LOCAL_OUTPUT_DIR_ENV_VAR = "LOCAL_OUTPUT_DIR"
 FORCE_RUN_EXTRACTOR_ENV_VAR = "FORCE_RUN_EXTRACTOR"
 
 
@@ -72,6 +71,7 @@ class BaseExtractor[Out](
         logger: Logger,
     ):
         self.logger = logger
+        self.force_run_extractor = is_force_extractor_run_enabled()
 
     @abstractmethod
     def extract(self) -> Iterator[Out]:
@@ -161,8 +161,7 @@ class BaseExtractor[Out](
     ) -> Iterator[Out]:
         previous_run_filename: str | None = None
 
-        force_run_extractor = is_force_extractor_run_enabled()
-        if not force_run_extractor:
+        if not self.force_run_extractor:
             self.logger.info(
                 f"Checking for previous extractor output in folder[{self.name}]..."
             )
@@ -170,8 +169,8 @@ class BaseExtractor[Out](
                 self.name,
             )
 
-        if not previous_run_filename or force_run_extractor:
-            if force_run_extractor:
+        if not previous_run_filename or self.force_run_extractor:
+            if self.force_run_extractor:
                 self.logger.info(
                     "Force run extractor enabled, skipping cache check and running extractor"
                 )

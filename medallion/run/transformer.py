@@ -7,14 +7,17 @@ from medallion.model.extractor import (
 from medallion.queue.pubsub import PubSubQueue
 from medallion.resolve_classes import load_transformer_from_env
 from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
-from medallion.run.listener import Listener
+from medallion.run.listener import LISTENER_MAX_RETRIES_ENV_VAR, Listener
 from medallion.run.extractor import (
     ARG_PREVIOUS_STEPS,
+    GOOGLE_CLOUD_PROJECT_ENV_VAR,
     ordering_key_from_steps,
 )
 from medallion.store.base import must_get_env
 from medallion.queue.base import Queue
 from pydantic import Field
+
+from medallion.store.base import MEDALLION_TOPIC_ENV
 
 
 class TransformerListener(Listener):
@@ -74,7 +77,7 @@ class TransformerListener(Listener):
 
 
 if __name__ == "__main__":
-    project_id = must_get_env("PUBSUB_PROJECT_ID")
+    project_id = must_get_env(GOOGLE_CLOUD_PROJECT_ENV_VAR)
     logger = create_logger()
     transformer = load_transformer_from_env(logger)
     listener = TransformerListener(
@@ -86,7 +89,7 @@ if __name__ == "__main__":
         ),
         messages_out=PubSubQueue(
             project_id=project_id,
-            topic_id=must_get_env("MEDALLION_TOPIC"),
+            topic_id=must_get_env(MEDALLION_TOPIC_ENV),
             logger=logger,
         ),
         dlq=PubSubQueue(
@@ -94,7 +97,7 @@ if __name__ == "__main__":
             topic_id=must_get_env("MEDALLION_DLQ_TOPIC"),
             logger=logger,
         ),
-        max_retries=int(must_get_env("LISTENER_MAX_RETRIES")),
+        max_retries=int(must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)),
         logger=create_logger(),
     )
     listener.listen()

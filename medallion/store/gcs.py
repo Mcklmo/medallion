@@ -28,3 +28,18 @@ class GCStorage(BlobStore):
     def download_file(self, path: str) -> BytesIO:
         blob = self.bucket.blob(path)
         return BytesIO(blob.download_as_bytes())
+
+    def list_files_at(
+        self,
+        prefix: str,
+        suffix: str | None = None,
+    ) -> list[str]:
+        blobs = self.storage_client.list_blobs(
+            self.bucket.name,
+            prefix=prefix,
+        )
+        paths = [blob.name for blob in blobs]
+        if suffix is not None:
+            paths = [p for p in paths if p.endswith(suffix)]
+
+        return paths

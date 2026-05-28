@@ -41,6 +41,7 @@ class PipeLine(BaseModel):
                     logger=self.logger,
                     store=self.store_output,
                     max_retries=0,
+                    should_start_health_server=False,
                 ).listen
             )
 
@@ -57,6 +58,7 @@ class PipeLine(BaseModel):
                         logger=self.logger,
                         transformer=t,
                         max_retries=0,
+                        should_start_health_server=False,
                     ).listen
                 )
                 executor.submit(
@@ -66,6 +68,7 @@ class PipeLine(BaseModel):
                         logger=self.logger,
                         store=self.store_output,
                         max_retries=0,
+                        should_start_health_server=False,
                     ).listen
                 )
 

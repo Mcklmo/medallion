@@ -36,9 +36,24 @@ from medallion.configure_entrypoint.pipeline_graph_model import (
 )
 from medallion.model.extractor import (
     FORCE_RUN_EXTRACTOR_ENV_VAR,
+)
+from medallion.resolve_classes import EXTRACTOR_CLASS_ENV_VAR, TRANSFORMER_CLASS_ENV_VAR
+from medallion.run.extractor import (
+    API_KEY_ENV,
+    GOOGLE_CLOUD_PROJECT_ENV_VAR,
+    PUB_SUB_QUEUE_TYPE,
+    QUEUE_TYPE_ENV_VAR,
+)
+from medallion.run.listener import LISTENER_MAX_RETRIES_ENV_VAR
+from medallion.store.base import (
+    MEDALLION_TOPIC_ENV,
+    must_get_env,
+    FILE_STORAGE_TYPE_ENV_VAR,
+)
+from medallion.store.initialize_storage import (
+    FILE_STORAGE_LOCAL,
     LOCAL_OUTPUT_DIR_ENV_VAR,
 )
-from medallion.store.base import must_get_env, FILE_STORAGE_TYPE_ENV_VAR
 
 # --------------------------------------------------------------------------- #
 # Tunables — change these to match your repo's entrypoints / conventions.
@@ -143,9 +158,9 @@ def stores_for_queues(graph: PipelineGraph) -> list[Store]:
 def base_env(extra: dict[str, Any] | None = None) -> dict[str, Any]:
     env = {
         "PUBSUB_EMULATOR_HOST": EMULATOR_HOST,
-        "PUBSUB_PROJECT_ID": PROJECT_ID,
+        GOOGLE_CLOUD_PROJECT_ENV_VAR: PROJECT_ID,
         "MEDALLION_ROOT": MEDALLION_ROOT,
-        FILE_STORAGE_TYPE_ENV_VAR: must_get_env(FILE_STORAGE_TYPE_ENV_VAR),
+        FILE_STORAGE_TYPE_ENV_VAR: FILE_STORAGE_LOCAL,
     }
     if extra:
         env.update(extra)
@@ -172,9 +187,11 @@ def build_extractor_service(
     rt = graph.effective_runtime(ex)
     env = base_env(runtime_to_env(rt))
     env[FORCE_RUN_EXTRACTOR_ENV_VAR] = "${FORCE_RUN_EXTRACTOR}"
-    env["EXTRACTOR_CLASS"] = ex.class_
-    env["MEDALLION_TOPIC"] = topic_name(repo, ex.writes_to)
+    env[EXTRACTOR_CLASS_ENV_VAR] = ex.class_
+    env[MEDALLION_TOPIC_ENV] = topic_name(repo, ex.writes_to)
+    env[QUEUE_TYPE_ENV_VAR] = PUB_SUB_QUEUE_TYPE
     env[LOCAL_OUTPUT_DIR_ENV_VAR] = STORE_OUTPUT_DIR
+    env[API_KEY_ENV] = "${EXTRACTOR_API_KEY}"
     svc: dict[str, Any] = {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['extractor']}",
@@ -185,26 +202,27 @@ def build_extractor_service(
             "./.medallion-data:/app/data"
         ],  # the extractor needs the local sink to check for previous runs "cache"
     }
+
     # Schedules can't run as Cloud Scheduler locally; surface them as a hint.
     if ex.schedules:
         crons = "; ".join(f"{s.name}={s.cron} ({s.timezone})" for s in ex.schedules)
         svc["labels"] = {"medallion.schedules": crons}
+
     return svc
 
 
-DEFAULT_LISTENER_MAX_RETRIES_ENV_VAR = "DEFAULT_LISTENER_MAX_RETRIES"
-
-
 def build_transformer_service(
-    graph: PipelineGraph, repo: str, tr: Transformer
+    graph: PipelineGraph,
+    repo: str,
+    tr: Transformer,
 ) -> dict[str, Any]:
     rt = graph.effective_runtime(tr)
     env = base_env(runtime_to_env(rt))
-    env["TRANSFORMER_CLASS"] = tr.class_
+    env[TRANSFORMER_CLASS_ENV_VAR] = tr.class_
     env["MEDALLION_SUBSCRIPTION"] = subscription_name(repo, tr.reads_from, tr.name)
-    env["MEDALLION_TOPIC"] = topic_name(repo, tr.writes_to)
+    env[MEDALLION_TOPIC_ENV] = topic_name(repo, tr.writes_to)
     env["MEDALLION_DLQ_TOPIC"] = dlq_topic_name(repo, tr.reads_from)
-    env["LISTENER_MAX_RETRIES"] = must_get_env(DEFAULT_LISTENER_MAX_RETRIES_ENV_VAR)
+    env[LISTENER_MAX_RETRIES_ENV_VAR] = must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)
     return {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['transformer']}",
@@ -218,8 +236,8 @@ def build_store_service(graph: PipelineGraph, repo: str, st: Store) -> dict[str,
     env = base_env(runtime_to_env(rt))
     env["MEDALLION_SUBSCRIPTION"] = subscription_name(repo, st.reads_from, st.name)
     env["MEDALLION_DLQ_TOPIC"] = dlq_topic_name(repo, st.reads_from)
-    env["LISTENER_MAX_RETRIES"] = must_get_env(DEFAULT_LISTENER_MAX_RETRIES_ENV_VAR)
-    env["LOCAL_OUTPUT_DIR"] = STORE_OUTPUT_DIR
+    env[LISTENER_MAX_RETRIES_ENV_VAR] = must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)
+    env[LOCAL_OUTPUT_DIR_ENV_VAR] = STORE_OUTPUT_DIR
 
     return {
         "build": BUILD_CONTEXT,
@@ -245,7 +263,9 @@ def build_bootstrap(
     processors depend on it finishing."""
     # `$$` escapes a literal `$` for docker-compose interpolation, so the
     # generated YAML contains `${VAR}` and the in-container shell expands it.
-    base = "$${PUBSUB_EMULATOR_HOST}/v1/projects/$${PUBSUB_PROJECT_ID}"
+    base = (
+        f"$${{PUBSUB_EMULATOR_HOST}}/v1/projects/$${{{GOOGLE_CLOUD_PROJECT_ENV_VAR}}}"
+    )
     lines = [
         "set -e",
         'echo "waiting for emulator..."',
@@ -256,10 +276,10 @@ def build_bootstrap(
             f'curl -s -X PUT {base}/topics/{t} -o /dev/null && echo "topic {t}"'
         )
     for sub, topic, dlq in subscriptions:
-        topic_path = "projects/$${PUBSUB_PROJECT_ID}/topics/" + topic
+        topic_path = f"projects/$${{{GOOGLE_CLOUD_PROJECT_ENV_VAR}}}/topics/{topic}"
         body = '{\\"topic\\": \\"' + topic_path + '\\"'
         if dlq is not None:
-            dlq_path = "projects/$${PUBSUB_PROJECT_ID}/topics/" + dlq
+            dlq_path = f"projects/$${{{GOOGLE_CLOUD_PROJECT_ENV_VAR}}}/topics/{dlq}"
             body += (
                 ', \\"deadLetterPolicy\\": {'
                 '\\"deadLetterTopic\\": \\"' + dlq_path + '\\", '
@@ -280,7 +300,7 @@ def build_bootstrap(
         "depends_on": ["pubsub"],
         "environment": {
             "PUBSUB_EMULATOR_HOST": f"http://{EMULATOR_HOST}",
-            "PUBSUB_PROJECT_ID": PROJECT_ID,
+            GOOGLE_CLOUD_PROJECT_ENV_VAR: PROJECT_ID,
         },
         "entrypoint": ["sh", "-c", script],
     }
@@ -336,16 +356,13 @@ def generate(graph: PipelineGraph) -> dict[str, Any]:
     # Processor services.
     host_port = EXTRACTOR_HOST_PORT_START
     for ex in graph.extractors:
-        services["extract-" + ex.name] = build_extractor_service(
-            graph, repo, ex, host_port
-        )
+        services[ex.name] = build_extractor_service(graph, repo, ex, host_port)
         host_port += 1
     for tr in graph.transformers:
-        services["transform-" + tr.name] = build_transformer_service(graph, repo, tr)
+        services[tr.name] = build_transformer_service(graph, repo, tr)
+
     for st in stores:
-        services[
-            "store-" + st.name if not st.name.startswith("store-") else st.name
-        ] = build_store_service(graph, repo, st)
+        services[st.name] = build_store_service(graph, repo, st)
 
     return {"services": services}
 

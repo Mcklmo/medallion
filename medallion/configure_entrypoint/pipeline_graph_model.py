@@ -60,7 +60,7 @@ _RUNTIME_FALLBACKS = EffectiveRuntime(
     cpu="1",
     memory="512Mi",
     timeout="300s",
-    min_instances=0,
+    min_instances=1,
     max_instances=10,
     concurrency=10,
 )
@@ -88,10 +88,15 @@ class Schedule(StrictModel):
     timezone: str = "UTC"
 
 
+MAX_PROCESSOR_NAME_LENGTH = 50
+
+
 class ProcessorBase(StrictModel):
     """Common fields for extractors, transformers, and stores."""
 
-    name: str
+    name: str = Field(
+        max_length=MAX_PROCESSOR_NAME_LENGTH,  # gcp service name have 50 character limit
+    )
     class_: str = Field(alias="class")
     runtime: Runtime | None = None
 
@@ -100,19 +105,40 @@ class ProcessorBase(StrictModel):
         populate_by_name=True,
     )
 
+    def model_post_init(self, context: Any) -> None:
+        if len(self.name) > MAX_PROCESSOR_NAME_LENGTH:
+            raise ValueError(
+                f"Processor name '{self.name}' is too long after prefixing; must be at most {MAX_PROCESSOR_NAME_LENGTH} characters including prefix"
+            )
+
 
 class Extractor(ProcessorBase):
     writes_to: str
     schedules: list[Schedule] | None = None
+
+    def model_post_init(self, context: Any) -> None:
+        extract_prefix = "extract-"
+        if not self.name.lower().startswith(extract_prefix.lower()):
+            self.name = f"{extract_prefix}{self.name}"
 
 
 class Transformer(ProcessorBase):
     reads_from: str
     writes_to: str
 
+    def model_post_init(self, context: Any) -> None:
+        transform_prefix = "transform-"
+        if not self.name.lower().startswith(transform_prefix.lower()):
+            self.name = f"{transform_prefix}{self.name}"
+
 
 class Store(ProcessorBase):
     reads_from: str
+
+    def model_post_init(self, context: Any) -> None:
+        store_prefix = "store-"
+        if not self.name.lower().startswith(store_prefix.lower()):
+            self.name = f"{store_prefix}{self.name}"
 
 
 class PipelineGraph(StrictModel):

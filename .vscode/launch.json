@@ -36,66 +36,13 @@
             "justMyCode": false
         },
         {
-            "name": "CLI: Run User Pipeline (example)",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "medallion.medallion",
-            "python": "${command:python.interpreterPath}",
-            "args": "${input:pipelineClasses}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "justMyCode": false
-        },
-        {
-            "name": "Code: Run User Pipeline (example)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/example/basic/run.py",
-            "python": "${command:python.interpreterPath}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "justMyCode": false
-        },
-        {
-            "name": "Run horde (example)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/example/streaming/run.py",
-            "python": "${command:python.interpreterPath}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "justMyCode": false
-        },
-        {
-            "name": "Trigger extractor (example)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/example/streaming/trigger_mock.py",
-            "python": "${command:python.interpreterPath}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "justMyCode": false
-        },
-        {
             "name": "Configure runtime (example)",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/medallion/fleet/configure_runtime.py",
+            "program": "${workspaceFolder}/medallion/configure_entrypoint/configure_runtime.py",
             "python": "${command:python.interpreterPath}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "justMyCode": false
-        },
-        {
-            "name": "Run Pipeline: Extractor -> Transformer",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "medallion.medallion",
-            "args": [
-                "Extractor",
-                "Transformer",
-                "--force-run-extractor"
-            ],
             "justMyCode": false
         },
         {
@@ -133,21 +80,11 @@
             "name": "Generate docker compose from config.yml",
             "type": "debugpy",
             "request": "launch",
-            "module": "medallion.generate_compose",
+            "module": "medallion.configure_entrypoint.generate_docker_compose",
             "python": "${command:python.interpreterPath}",
             "args": [
                 "example/nemweb/config.yml"
             ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "justMyCode": false
-        },
-        {
-            "name": "Launch Async Transformer",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "medallion.run.transformer",
-            "python": "${command:python.interpreterPath}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "justMyCode": false
@@ -173,13 +110,16 @@
             "justMyCode": false
         },
         {
-            "name": "Run Pipeline: DispatchScadaExtractor",
+            "name": "Deploy to GCP",
             "type": "debugpy",
             "request": "launch",
-            "module": "medallion.medallion",
+            "module": "medallion.configure_entrypoint.deploy_google_cloud_project",
+            "python": "${command:python.interpreterPath}",
             "args": [
-                "DispatchScadaExtractor"
+                "${input:action}"
             ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
             "justMyCode": false
         },
         {
@@ -200,6 +140,12 @@
             "type": "promptString",
             "description": "Pipeline classes",
             "default": "Extractor Transformer"
+        },
+        {
+            "id": "action",
+            "type": "promptString",
+            "description": "Action to perform (prepare, activate, rollback)",
+            "default": "prepare"
         },
         {
             "id": "testFile",

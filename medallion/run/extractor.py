@@ -1,42 +1,63 @@
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable
 
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, Request
 from contextlib import asynccontextmanager
+
+from fastapi.responses import JSONResponse
 
 
 from medallion.log import create_logger
 from medallion.model.extractor import (
     ARG_PREVIOUS_STEPS,
-    LOCAL_OUTPUT_DIR_ENV_VAR,
     ORDERING_KEY_SEPARATOR,
     BaseExtractor,
     Streamer,
 )
+from medallion.queue.mock import MockQueue
 from medallion.queue.pubsub import PubSubQueue
 from medallion.resolve_classes import load_extractor_from_env
-from medallion.store.base import BlobStore, must_get_env
-from medallion.store.initialize_storage import initialize_storage
-from medallion.queue.base import QueueWriter
+from medallion.store.base import MEDALLION_TOPIC_ENV, BlobStore, must_get_env
+from medallion.store.initialize_storage import (
+    initialize_storage,
+)
+from medallion.queue.base import Queue, QueueWriter
+
+API_KEY_ENV = "EXTRACTOR_API_KEY"
+API_KEY_HEADER = "X-Extractor-Api-Key"
+GOOGLE_CLOUD_PROJECT_ENV_VAR = "GOOGLE_CLOUD_PROJECT"
+QUEUE_TYPE_ENV_VAR = "QUEUE_TYPE"
+PUB_SUB_QUEUE_TYPE = "pubsub"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.api_key_value = must_get_env(API_KEY_ENV)
     # Load config, init publisher client once
     logger = create_logger()
     app.state.extractor = load_extractor_from_env(logger)
-    app.state.queue_producer = PubSubQueue(
-        project_id=must_get_env("PUBSUB_PROJECT_ID"),
-        topic_id=must_get_env("MEDALLION_TOPIC"),
-        logger=create_logger(),
-    )
+    app.state.queue_producer = initialize_queue()
     app.state.logger = logger
     app.state.store = initialize_storage(
-        output_dir=must_get_env(LOCAL_OUTPUT_DIR_ENV_VAR),
         logger=logger,
     )
 
     yield
+
+
+def initialize_queue() -> Queue:
+    queue_type = must_get_env(QUEUE_TYPE_ENV_VAR)
+    if queue_type == PUB_SUB_QUEUE_TYPE:
+        return PubSubQueue(
+            project_id=must_get_env(GOOGLE_CLOUD_PROJECT_ENV_VAR),
+            topic_id=must_get_env(MEDALLION_TOPIC_ENV),
+            logger=create_logger(),
+        )
+
+    if queue_type == "mock":
+        return MockQueue()
+
+    raise ValueError(f"Unsupported queue type: {queue_type}")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -93,7 +114,20 @@ def extract_and_stream(
 
 
 @app.post("/")
-async def trigger(background: BackgroundTasks):
+async def trigger(request: Request, background: BackgroundTasks):
+    value = request.headers.get(API_KEY_HEADER)
+    if value != app.state.api_key_value:
+        app.state.logger.warning(
+            "Received trigger request with invalid API key: %s", value
+        )
+
+        return JSONResponse(
+            status_code=401,
+            content={
+                "status": "unauthorized",
+            },
+        )
+
     app.state.logger.info(
         "Received trigger request, starting extraction and publishing in background"
     )
@@ -105,7 +139,12 @@ async def trigger(background: BackgroundTasks):
         )
     )
 
-    return {"status": "accepted"}
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+        },
+    )
 
 
 @app.get("/healthz")

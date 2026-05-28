@@ -5,6 +5,11 @@ from io import BytesIO
 import pendulum
 
 from google.oauth2 import service_account
+import google.auth
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 FOLDERNAME_DATETIME_FORMAT = "YYYY-MM-DDTHH-mm-ssSSS"
 FILE_STORAGE_TYPE_ENV_VAR = "FILE_STORAGE_TYPE"
@@ -14,16 +19,29 @@ _LATEST_FILE_PATH_REGEX = re.compile(
 )
 
 
+class MissingENVError(Exception):
+    pass
+
+
 def must_get_env(key: str) -> str:
     value = getenv(key)
-    assert value is not None, f"Required environment variable {key} is missing."
+    if value is None:
+        raise MissingENVError(f"Required environment variable {key} is missing.")
 
     return value
 
 
 def load_service_account_credentials():
+    try:
+        google_application_credentials_path = must_get_env(
+            "GOOGLE_APPLICATION_CREDENTIALS"
+        )
+    except MissingENVError:
+        credentials, _ = google.auth.default()
+        return credentials
+
     return service_account.Credentials.from_service_account_file(
-        must_get_env("GOOGLE_APPLICATION_CREDENTIALS")
+        google_application_credentials_path
     )
 
 
@@ -99,3 +117,6 @@ class BlobStore(ABC):
                 latest_rel = match.group("rel")
 
         return latest_rel
+
+
+MEDALLION_TOPIC_ENV = "MEDALLION_TOPIC"

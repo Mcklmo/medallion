@@ -11,13 +11,38 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 import faulthandler
+import json
+import os
 import signal
 import sys
 import threading
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from logging import Logger
 from humanize import naturalsize
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"ok": True}).encode())
+
+    def log_message(self, format, *args):
+        pass
+
+
+def _start_health_server(logger) -> HTTPServer:
+    port = int(os.getenv("PORT", "8080"))
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+
+    thread.start()
+    logger.info("Health-check server listening on port %d", port)
+
+    return server
 
 
 class Listener(
@@ -41,6 +66,9 @@ class Listener(
     shutdown: bool = Field(
         init=False,
         default=False,
+    )
+    should_start_health_server: bool = (
+        True  # needed for GCP Cloud Run to probe the health of the container on startup
     )
 
     def request_shutdown(self) -> None:
@@ -66,6 +94,12 @@ class Listener(
 
         self.logger.info(f"Starting listener[{self.__class__.__name__}]")
 
+        health_server = (
+            None
+            if not self.should_start_health_server
+            else _start_health_server(self.logger)
+        )
+
         with self.messages_in as consumer:
             try:
                 for message in consumer.read_stream():
@@ -85,6 +119,12 @@ class Listener(
             finally:
                 self.message_executor.shutdown(wait=True)
                 self._after_listen()
+
+                if self.should_start_health_server:
+                    if health_server is None:
+                        raise Exception("Health server is unexpectedly None")
+
+                    health_server.shutdown()
 
     def _after_listen(self) -> None:
         """Hook for subclasses; runs once the listener has fully drained."""
@@ -158,3 +198,6 @@ class Listener(
         item_index: int,
     ) -> None:
         pass
+
+
+LISTENER_MAX_RETRIES_ENV_VAR = "LISTENER_MAX_RETRIES"

@@ -3,7 +3,8 @@ from io import BytesIO, StringIO
 import json
 from medallion.log import create_logger
 from medallion.queue.pubsub import PubSubQueue
-from medallion.run.listener import Listener
+from medallion.run.extractor import GOOGLE_CLOUD_PROJECT_ENV_VAR
+from medallion.run.listener import LISTENER_MAX_RETRIES_ENV_VAR, Listener
 from medallion.store.base import (
     BlobStore,
     build_timestamp_path_segments,
@@ -78,9 +79,8 @@ class StorageListener(Listener):
 
 if __name__ == "__main__":
     logger = create_logger()
-    project_id = must_get_env("PUBSUB_PROJECT_ID")
+    project_id = must_get_env(GOOGLE_CLOUD_PROJECT_ENV_VAR)
     store = initialize_storage(
-        must_get_env("LOCAL_OUTPUT_DIR"),
         logger,
     )
     listener = StorageListener(
@@ -95,7 +95,7 @@ if __name__ == "__main__":
             topic_id=must_get_env("MEDALLION_DLQ_TOPIC"),
             logger=logger,
         ),
-        max_retries=int(must_get_env("LISTENER_MAX_RETRIES")),
+        max_retries=int(must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)),
         logger=logger,
     )
     listener.listen()

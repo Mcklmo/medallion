@@ -11,15 +11,23 @@ from logging import Logger
 from medallion.store.gcs import GCStorage
 from medallion.store.local import LocalStorage
 
+LOCAL_OUTPUT_DIR_ENV_VAR = "LOCAL_OUTPUT_DIR"
+GCS_BUCKET_ENV_VAR = "GCS_BUCKET"
+FILE_STORAGE_LOCAL = "local"
+
 
 def initialize_storage(
-    output_dir: str,
     logger: Logger,
+    local_output_dir: str | None = None,
 ) -> "BlobStore":
     file_storage_type = must_get_env(FILE_STORAGE_TYPE_ENV_VAR)
-    if file_storage_type == "local":
+    if file_storage_type == FILE_STORAGE_LOCAL:
         return LocalStorage(
-            output_dir=output_dir,
+            output_dir=(
+                must_get_env(LOCAL_OUTPUT_DIR_ENV_VAR)
+                if local_output_dir is None
+                else local_output_dir
+            ),
             logger=logger,
         )
 
@@ -29,5 +37,5 @@ def initialize_storage(
 
     return GCStorage(
         credentials=load_service_account_credentials(),
-        bucket_name=must_get_env("GCS_BUCKET"),
+        bucket_name=must_get_env(GCS_BUCKET_ENV_VAR),
     )

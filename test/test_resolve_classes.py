@@ -7,6 +7,11 @@ from pydantic import ValidationError
 import pytest
 from medallion.model.extractor import BaseExtractor
 from medallion.resolve_classes import resolve_classes_from_names, resolve_user_package
+from medallion.store.base import FILE_STORAGE_TYPE_ENV_VAR
+from medallion.store.initialize_storage import (
+    FILE_STORAGE_LOCAL,
+    LOCAL_OUTPUT_DIR_ENV_VAR,
+)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "cmd"))
@@ -97,8 +102,8 @@ def local_storage_env(tmp_path, monkeypatch):
     cache_dir = tmp_path / "cache"
     output_dir.mkdir()
     cache_dir.mkdir()
-    monkeypatch.setenv("FILE_STORAGE_TYPE", "local")
-    monkeypatch.setenv("LOCAL_OUTPUT_DIR", str(output_dir))
+    monkeypatch.setenv(FILE_STORAGE_TYPE_ENV_VAR, FILE_STORAGE_LOCAL)
+    monkeypatch.setenv(LOCAL_OUTPUT_DIR_ENV_VAR, str(output_dir))
     monkeypatch.setenv("LOCAL_CACHE_DIR", str(cache_dir))
 
 

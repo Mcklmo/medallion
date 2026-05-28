@@ -15,12 +15,11 @@ def main():
         ],
         logger=logger,
         store_output=initialize_storage(
-            must_get_env("LOCAL_OUTPUT_DIR"),
             logger,
         ),
         store_cache=initialize_storage(
-            must_get_env("LOCAL_CACHE_DIR"),
             logger,
+            local_output_dir=must_get_env("LOCAL_CACHE_DIR"),
         ),
     ).run()
 
