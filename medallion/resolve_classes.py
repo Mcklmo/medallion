@@ -44,7 +44,7 @@ def resolve_user_package(logger: Logger) -> str:
     init_file = os.path.join(root, "__init__.py")
     assert os.path.isfile(init_file), f"No __init__.py found in {root}"
 
-    logger.info(f"Set {MEDALLION_ROOT_ENV} to {MEDALLION_ROOT}")
+    log_init_once(logger, MEDALLION_ROOT)
 
     # Walk up while each ancestor is also a package, so the package is imported
     # under its outermost canonical dotted name. Otherwise the user's own
@@ -66,6 +66,17 @@ def resolve_user_package(logger: Logger) -> str:
         sys.path.insert(0, sys_path_entry)
 
     return ".".join(parts)
+
+
+call_count = 0
+
+
+def log_init_once(logger, MEDALLION_ROOT):
+    global call_count
+    call_count += 1
+
+    if call_count == 1:
+        logger.info(f"Set {MEDALLION_ROOT_ENV} to {MEDALLION_ROOT}")
 
 
 def get_medallion_root():

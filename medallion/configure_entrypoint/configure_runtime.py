@@ -1,20 +1,28 @@
 import json
+import os
+import sys
 from pathlib import Path
 
 import json5
-
-import os
-
-from medallion.configure_entrypoint.pipeline_graph_model import PipelineGraph
-
 import yaml
 
+from medallion.configure_entrypoint.pipeline_graph_model import PipelineGraph
 from medallion.resolve_classes import get_medallion_root
 
 
-def load_config() -> PipelineGraph:
-    path = Path(f"{get_medallion_root()}/config.yml")
-    return PipelineGraph.model_validate(yaml.safe_load(path.read_text()))
+def load_config(path: Path | None = None) -> PipelineGraph:
+    if path is None:
+        path = Path(f"{get_medallion_root()}/config.yml")
+    raw = yaml.safe_load(path.read_text())
+    ignored_stores = raw.pop("stores", None)
+    if ignored_stores:
+        names = [s.get("name") for s in ignored_stores]
+        print(
+            f"  ! Ignoring `stores:` block in config ({names}); "
+            "stores are generated automatically, one per queue.",
+            file=sys.stderr,
+        )
+    return PipelineGraph.model_validate(raw)
 
 
 def configure_runtime():

@@ -21,18 +21,25 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from medallion.configure_entrypoint.configure_runtime import load_config
 from medallion.configure_entrypoint.pipeline_graph_model import (
     EffectiveRuntime,
     Extractor,
     PipelineGraph,
     Store,
     Transformer,
+)
+from medallion.configure_entrypoint.resource_names import (
+    DEAD_LETTER_MAX_DELIVERY_ATTEMPTS,
+    dlq_topic_name,
+    storage_subscription_name,
+    topic_name,
+    transformer_subscription_name,
 )
 from medallion.model.extractor import (
     FORCE_RUN_EXTRACTOR_ENV_VAR,
@@ -94,48 +101,6 @@ STORE_EVERY_QUEUE = True
 # Local sink the store writes to in dev. Matches the volume mount target
 # in `build_store_service` (./.medallion-data:/app/data).
 STORE_OUTPUT_DIR = "/app/data"
-
-# DLQ defaults for local dev. Production uses must_get_env discipline; local
-# uses a sensible default so `docker compose up` works without extra config.
-DEAD_LETTER_MAX_DELIVERY_ATTEMPTS = 100  # mirrors bootstrap.py — safety net only
-
-
-# --------------------------------------------------------------------------- #
-# Config loading
-# --------------------------------------------------------------------------- #
-
-
-def load_config(path: Path) -> PipelineGraph:
-    with path.open() as fh:
-        raw = yaml.safe_load(fh)
-    ignored_stores = raw.pop("stores", None)
-    if ignored_stores:
-        names = [s.get("name") for s in ignored_stores]
-        print(
-            f"  ! Ignoring `stores:` block in config ({names}); "
-            "stores are generated automatically, one per queue.",
-            file=sys.stderr,
-        )
-    return PipelineGraph.model_validate(raw)
-
-
-# --------------------------------------------------------------------------- #
-# Naming — design.md: queues are prefixed with the repo name.
-# --------------------------------------------------------------------------- #
-
-
-def topic_name(repo: str, queue: str) -> str:
-    return f"{repo}-{queue}"
-
-
-def dlq_topic_name(repo: str, queue: str) -> str:
-    return f"{repo}-{queue}-dlq"
-
-
-def subscription_name(repo: str, queue: str, consumer: str) -> str:
-    # One subscription per (queue, reading processor) — design.md.
-    return f"{repo}-{queue}-{consumer}"
-
 
 # --------------------------------------------------------------------------- #
 # Store synthesis — the auto-generated stores, one per queue.
@@ -219,7 +184,7 @@ def build_transformer_service(
     rt = graph.effective_runtime(tr)
     env = base_env(runtime_to_env(rt))
     env[TRANSFORMER_CLASS_ENV_VAR] = tr.class_
-    env["MEDALLION_SUBSCRIPTION"] = subscription_name(repo, tr.reads_from, tr.name)
+    env["MEDALLION_SUBSCRIPTION"] = transformer_subscription_name(repo, tr.name)
     env[MEDALLION_TOPIC_ENV] = topic_name(repo, tr.writes_to)
     env["MEDALLION_DLQ_TOPIC"] = dlq_topic_name(repo, tr.reads_from)
     env[LISTENER_MAX_RETRIES_ENV_VAR] = must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)
@@ -234,7 +199,7 @@ def build_transformer_service(
 def build_store_service(graph: PipelineGraph, repo: str, st: Store) -> dict[str, Any]:
     rt = graph.effective_runtime(st)
     env = base_env(runtime_to_env(rt))
-    env["MEDALLION_SUBSCRIPTION"] = subscription_name(repo, st.reads_from, st.name)
+    env["MEDALLION_SUBSCRIPTION"] = storage_subscription_name(repo, st.reads_from)
     env["MEDALLION_DLQ_TOPIC"] = dlq_topic_name(repo, st.reads_from)
     env[LISTENER_MAX_RETRIES_ENV_VAR] = must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)
     env[LOCAL_OUTPUT_DIR_ENV_VAR] = STORE_OUTPUT_DIR
@@ -337,7 +302,7 @@ def generate(graph: PipelineGraph) -> dict[str, Any]:
     for tr in graph.transformers:
         subscriptions.append(
             (
-                subscription_name(repo, tr.reads_from, tr.name),
+                transformer_subscription_name(repo, tr.name),
                 topic_name(repo, tr.reads_from),
                 dlq_topic_name(repo, tr.reads_from),
             )
@@ -345,7 +310,7 @@ def generate(graph: PipelineGraph) -> dict[str, Any]:
     for st in stores:
         subscriptions.append(
             (
-                subscription_name(repo, st.reads_from, st.name),
+                storage_subscription_name(repo, st.reads_from),
                 topic_name(repo, st.reads_from),
                 dlq_topic_name(repo, st.reads_from),
             )

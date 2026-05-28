@@ -54,6 +54,15 @@ from medallion.configure_entrypoint.pipeline_graph_model import (
     Store,
     Transformer,
 )
+from medallion.configure_entrypoint.resource_names import (
+    DEAD_LETTER_MAX_DELIVERY_ATTEMPTS,
+    dlq_topic_name,
+    scheduler_job_name,
+    service_name,
+    storage_subscription_name,
+    topic_name,
+    transformer_subscription_name,
+)
 from medallion.log import create_logger
 from medallion.model.extractor import FORCE_RUN_EXTRACTOR_ENV_VAR
 from medallion.run.extractor import (
@@ -78,32 +87,6 @@ from medallion.store.base import (
 )
 
 log = create_logger()
-
-DEAD_LETTER_MAX_DELIVERY_ATTEMPTS = 5  # 5 is minimum allowed by Pub/Sub
-
-
-def topic_name(repo_name: str, queue: str) -> str:
-    return f"{repo_name}-{queue}"
-
-
-def dlq_topic_name(repo_name: str, queue: str) -> str:
-    return f"{repo_name}-{queue}-dlq"
-
-
-def service_name(repo_name: str, processor: str) -> str:
-    return f"{repo_name}-{processor}"
-
-
-def subscription_name(repo_name: str, processor: str) -> str:
-    return f"{repo_name}-{processor}-sub"
-
-
-def storage_subscription_name(repo_name: str, queue: str) -> str:
-    return f"{repo_name}-{queue}-storage-sub"
-
-
-def scheduler_job_name(repo_name: str, processor: str, schedule: str) -> str:
-    return f"{repo_name}-{processor}-{schedule}"
 
 
 def derive_queues(graph: PipelineGraph) -> list[str]:
@@ -166,14 +149,14 @@ def build_clients(creds_path: Path, project: str, region: str) -> Clients:
 # ---------------------------------------------------------------------------
 
 
-def ensure_topic(clients: Clients, topic_name: str) -> None:
+def ensure_topic(clients: Clients, topic: str) -> None:
     """Topics are always live; nothing to make dormant. Idempotent."""
-    topic = clients.topic_path(topic_name)
+    path = clients.topic_path(topic)
     try:
-        clients.publisher.create_topic(request={"name": topic})
-        log.info("created topic %s", topic_name)
+        clients.publisher.create_topic(request={"name": path})
+        log.info("created topic %s", topic)
     except gcp_exceptions.AlreadyExists:
-        log.debug("topic exists: %s", topic_name)
+        log.debug("topic exists: %s", topic)
 
 
 def build_and_push_image(
@@ -362,7 +345,7 @@ def deploy_service(
             run_v2.EnvVar(
                 name="MEDALLION_SUBSCRIPTION",
                 value=(
-                    subscription_name(graph.repo.name, processor.name)
+                    transformer_subscription_name(graph.repo.name, processor.name)
                     if isinstance(processor, Transformer)
                     else storage_subscription_name(
                         graph.repo.name, processor.reads_from
@@ -506,7 +489,7 @@ def ensure_subscription(
     dlq_topic_path: str,
 ) -> None:
     topic = clients.topic_path(topic_name(graph.repo.name, processor.reads_from))
-    sub_id = subscription_name(graph.repo.name, processor.name)
+    sub_id = transformer_subscription_name(graph.repo.name, processor.name)
     sub_path = clients.subscription_path(sub_id)
     runtime = graph.effective_runtime(processor)
     state_label = "dormant" if dormant else "active"
@@ -551,7 +534,7 @@ def activate_subscription(
     clients: Clients, graph: PipelineGraph, processor: Transformer
 ) -> None:
     """Activate: flip a dormant subscription to active by updating its label."""
-    sub_id = subscription_name(graph.repo.name, processor.name)
+    sub_id = transformer_subscription_name(graph.repo.name, processor.name)
     sub_path = clients.subscription_path(sub_id)
     sub = pubsub_v1.types.Subscription(
         name=sub_path,
@@ -811,7 +794,9 @@ def deactivate_orphans(clients: Clients, graph: PipelineGraph) -> None:
     prefix = f"{repo}-"
     all_processors = (*graph.extractors, *graph.transformers, *stores)
     expected_services = {service_name(repo, p.name) for p in all_processors}
-    expected_subs = {subscription_name(repo, t.name) for t in graph.transformers}
+    expected_subs = {
+        transformer_subscription_name(repo, t.name) for t in graph.transformers
+    }
     expected_subs |= {storage_subscription_name(repo, q.name) for q in graph.queues}
     expected_jobs = {
         scheduler_job_name(repo, e.name, s.name)
@@ -889,7 +874,7 @@ def cmd_rollback(args, clients: Clients) -> None:
 
     # Subscriptions: dormant subs have medallion-state=dormant label. Delete those.
     for transformer in graph.transformers:
-        sub_id = subscription_name(repo, transformer.name)
+        sub_id = transformer_subscription_name(repo, transformer.name)
         sub_path = clients.subscription_path(sub_id)
         try:
             sub = clients.subscriber.get_subscription(subscription=sub_path)
