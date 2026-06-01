@@ -1,4 +1,5 @@
 from logging import Logger
+from medallion.configure_entrypoint.start_project import start_project
 from medallion.configure_entrypoint.vscode import write_launch_json_file
 from medallion.log import create_logger
 from medallion.pipeline import PipeLine
@@ -18,6 +19,10 @@ def main(
 
     if user_input.vscode is not None:
         write_launch_json_file(include_all=user_input.vscode.include_all)
+        return 0
+
+    if user_input.new_project_name:
+        start_project(user_input.new_project_name)
         return 0
 
     store_output = initialize_storage(

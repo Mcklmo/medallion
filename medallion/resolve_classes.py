@@ -22,6 +22,7 @@ def resolve_class(
 
 
 VSCODE_COMMAND = "vscode"
+START_PROJECT_COMMAND = "start"
 
 
 class VscodeOptions(BaseModel):
@@ -31,6 +32,7 @@ class VscodeOptions(BaseModel):
 class UserInput(BaseModel):
     class_names: list[str] = []
     vscode: VscodeOptions | None = None  # None => run pipeline; set => configure vscode
+    new_project_name: str | None = None  # None => run pipeline; set => start project
 
 
 def get_user_input() -> UserInput:
@@ -40,6 +42,17 @@ def get_user_input() -> UserInput:
         vscode_options = parse_vscode_arguments(argv)
 
         return UserInput(vscode=vscode_options)
+
+    if argv and argv[0] == START_PROJECT_COMMAND:
+        if len(argv) < 2 or len(argv) > 2:
+            raise ValueError(
+                f"Invalid usage of '{START_PROJECT_COMMAND}' command. "
+                "Usage: 'medallion start <project_name>'"
+            )
+
+        return UserInput(
+            new_project_name=argv[1],
+        )
 
     parser = argparse.ArgumentParser(
         prog="medallion",

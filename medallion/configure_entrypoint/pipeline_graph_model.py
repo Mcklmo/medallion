@@ -15,7 +15,7 @@ class StrictModel(BaseModel):
 
 class Repo(StrictModel):
     name: str
-    owner: str
+    owner: str | None = None
     description: str | None = None
 
 

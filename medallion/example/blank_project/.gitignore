@@ -1,0 +1,13 @@
+.mypy_cache/
+__pycache__/
+.venv/
+.vscode/
+.env
+.output/*
+dist/
+build/
+*.egg-info/
+.DS_Store
+medallion-test-628d97bbe221.json
+.medallion-data/*
+docker-compose.debug.yml
