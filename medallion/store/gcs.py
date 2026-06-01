@@ -1,10 +1,9 @@
-import pendulum
-from google.cloud import storage
+from google.cloud import storage  # type: ignore[attr-defined]
 from google.oauth2 import service_account
 
 from io import BytesIO
 
-from medallion.store.base import BlobStore, SourceDocumentLocation
+from medallion.store.base import BlobStore
 
 
 class GCStorage(BlobStore):
@@ -18,19 +17,6 @@ class GCStorage(BlobStore):
         )
         self.bucket = self.storage_client.bucket(bucket_name)
 
-    def get_file_location(self, relative_path: str) -> SourceDocumentLocation:
-        blob = self.bucket.blob(relative_path)
-        assert blob.exists()
-
-        signed = blob.generate_signed_url(
-            expiration=pendulum.now().add(hours=1).int_timestamp
-        )  # URL valid for 1 hour
-        return SourceDocumentLocation(file_url=signed)
-
-    def file_exists(self, destination_path: str) -> bool:
-        blob = self.bucket.blob(destination_path)
-        return blob.exists()
-
     def upload_file(
         self,
         destination_path: str,
@@ -42,3 +28,18 @@ class GCStorage(BlobStore):
     def download_file(self, path: str) -> BytesIO:
         blob = self.bucket.blob(path)
         return BytesIO(blob.download_as_bytes())
+
+    def list_files_at(
+        self,
+        prefix: str,
+        suffix: str | None = None,
+    ) -> list[str]:
+        blobs = self.storage_client.list_blobs(
+            self.bucket.name,
+            prefix=prefix,
+        )
+        paths = [blob.name for blob in blobs]
+        if suffix is not None:
+            paths = [p for p in paths if p.endswith(suffix)]
+
+        return paths

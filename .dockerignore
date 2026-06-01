@@ -1,0 +1,35 @@
+# Caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# VCS / build outputs
+.git/
+.gitignore
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Local data / outputs that should never end up in the image
+output/
+.medallion-data/
+
+# Docker artefacts (the build context doesn't need these)
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Secrets — never bake into the image
+medallion-test-*.json
+*.pem
+*.key
+.env
+.env.*
+
+# Tests
+test/

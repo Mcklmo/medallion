@@ -51,3 +51,36 @@ Verify on <https://pypi.org/project/medallion-pipeline/>, then cut the real tag.
 ### Initial PyPI trusted-publisher setup (one-time, already done)
 
 For reference, if the trusted publisher ever needs to be reconfigured: <https://pypi.org/manage/account/publishing/> → pending publisher with owner `Mcklmo`, repo `medallion`, workflow `release.yml`, environment `pypi`.
+
+## Setup for Google Cloud project
+
+- [ ] Service account roles: Pubsub Admin, Artifact Registry Admin, Cloud Run Admin, Storage Object Admin, Cloud Scheduler Admin, Secret Manager Secret Accessor
+- [ ] Enable APIS: PubSub API, Artifact Registry API, Cloud Run Admin API, Cloud Scheduler API, Secret Manager API
+- [ ] Create an Artifact Registry repository and a Storage Bucket with the same name as the "repo" in the config.yml file.
+- [ ] Create one API key in GCP Secrets per extractor, named "EXTRACTOR_NAME-api-key". EXTRACTOR_NAME is enforced to start with "extract-".
+
+At some point, you get this error or similiar `403 Permission 'iam.serviceaccounts.actAs' denied on service account 628431593486-compute@developer.gserviceaccount.com (or it may not exist).` Copy the email of the compute account and replace it in the below command. Also paste your service account email that performs this deployment.
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding \
+  628431593486-compute@developer.gserviceaccount.com \
+  --member="serviceAccount:YOUR_DEPLOYER_IDENTITY" \
+  --role="roles/iam.serviceAccountUser" \
+  --project="medallion-test"
+```
+
+## Docker compose debugging
+
+To run a debugger for any compose service, update the `docker-compose.debug.yml` file with the correct service name and run:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up
+```
+
+or
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+```
+
+Once all containers are ready, run the debugging configuration `Attach to docker service`

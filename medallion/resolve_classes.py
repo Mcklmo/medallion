@@ -3,11 +3,9 @@ import importlib
 from logging import Logger
 import os
 import sys
-from typing import Optional
-
-from medallion.base import BaseExtractor, BaseTransformer
-from medallion.pipeline import PipeLine
-from medallion.store.base import BlobStore
+from medallion.model.extractor import BaseExtractor
+from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
+from medallion.store.base import must_get_env
 
 
 def resolve_class(
@@ -17,12 +15,12 @@ def resolve_class(
     pkg = importlib.import_module(package_name)
     cls = getattr(pkg, class_name, None)
 
-    assert cls is not None, f"{class_name} not found in {package_name}"
+    assert cls is not None, f"{class_name} not found in module {pkg.__path__}"
 
     return cls
 
 
-def get_user_specified_class_names() -> list[str]:
+def get_user_input() -> list[str]:
     parser = argparse.ArgumentParser(
         prog="medallion",
         description="Run a medallion scraper pipeline of user-defined classes.",
@@ -32,71 +30,137 @@ def get_user_specified_class_names() -> list[str]:
         nargs="+",
         help="Pipeline classes in order: Extractor first, then Transformers.",
     )
-    return parser.parse_args().class_names
+
+    args = parser.parse_args()
+    return args.class_names
 
 
-def resolve_user_package() -> str:
-    root = os.environ.get("MEDALLION_ROOT") or os.getcwd()
-    root = os.path.abspath(root)
+MEDALLION_ROOT_ENV = "MEDALLION_ROOT"
+
+
+def resolve_user_package(logger: Logger) -> str:
+    MEDALLION_ROOT = get_medallion_root()
+    root = os.path.abspath(MEDALLION_ROOT)
     init_file = os.path.join(root, "__init__.py")
     assert os.path.isfile(init_file), f"No __init__.py found in {root}"
 
-    parent, name = os.path.split(root)
-    if parent not in sys.path:
-        sys.path.insert(0, parent)
+    log_init_once(logger, MEDALLION_ROOT)
 
-    return name
+    # Walk up while each ancestor is also a package, so the package is imported
+    # under its outermost canonical dotted name. Otherwise the user's own
+    # absolute import (e.g. `from example.nemweb.model import X`) and the
+    # framework's leaf-name import (`nemweb.model`) would load the same file
+    # twice under different `sys.modules` keys, producing two distinct class
+    # objects that fail identity-based equality.
+    parts: list[str] = []
+    current = root
+    while True:
+        parent, name = os.path.split(current)
+        parts.insert(0, name)
+        if not os.path.isfile(os.path.join(parent, "__init__.py")):
+            break
+        current = parent
+
+    sys_path_entry = parent
+    if sys_path_entry not in sys.path:
+        sys.path.insert(0, sys_path_entry)
+
+    return ".".join(parts)
 
 
-EXTRACTOR_TYPE_ASSERTION_MESSAGE = (
-    f"First class must be of type {BaseExtractor.__name__}"
-)
+call_count = 0
 
 
-def load_classes_from_user_input(
-    store_output: BlobStore,
-    store_cache: BlobStore,
+def log_init_once(logger, MEDALLION_ROOT):
+    global call_count
+    call_count += 1
+
+    if call_count == 1:
+        logger.info(f"Set {MEDALLION_ROOT_ENV} to {MEDALLION_ROOT}")
+
+
+def get_medallion_root():
+    return must_get_env(MEDALLION_ROOT_ENV)
+
+
+def load_classes(
+    class_names: list[str],
     logger: Logger,
-) -> PipeLine:
-    class_names = get_user_specified_class_names()
-    package_name = resolve_user_package()
-    classes = [resolve_class(package_name, n) for n in class_names]
-    extractor = classes[0]()
-    transformers = [cls() for cls in classes[1:]] if len(classes) > 1 else None
+) -> list[type]:
+    classes = resolve_classes_from_names(
+        class_names,
+        logger,
+    )
+    return classes
 
-    validate(
-        extractor,
-        transformers,
+
+def resolve_classes_from_names(
+    class_names: list[str],
+    logger: Logger,
+) -> list[type]:
+    package_name = resolve_user_package(logger)
+    classes = [
+        resolve_class(
+            package_name,
+            n,
+        )
+        for n in class_names
+    ]
+
+    return classes
+
+
+EXTRACTOR_CLASS_ENV_VAR = "EXTRACTOR_CLASS"
+
+
+def load_extractor_from_env(
+    logger: Logger,
+) -> BaseExtractor:
+    processor_name = must_get_env(EXTRACTOR_CLASS_ENV_VAR)
+    processor = build_processor_from_name(
+        processor_name,
+        logger,
     )
 
-    return PipeLine(
-        extractor=extractor,
-        transformers=transformers,
-        logger=logger,
-        store_output=store_output,
-        store_cache=store_cache,
-    )
-
-
-def validate(
-    extractor: BaseExtractor,
-    transformers: Optional[list[BaseTransformer]],
-) -> None:
     assert isinstance(
-        extractor,
+        processor,
         BaseExtractor,
-    ), EXTRACTOR_TYPE_ASSERTION_MESSAGE
+    ), f"Processor must be a {BaseExtractor.__name__}, got {type(processor).__name__}"
 
-    previous_output_type = extractor.output_type
+    return processor
 
-    for t in transformers or []:
-        assert isinstance(
-            t,
-            BaseTransformer,
-        ), f"Transformers must be of type {BaseTransformer.__name__}"
 
-        assert t.input_type == previous_output_type, f"""\
-            Transformer {t.__class__.__name__} expects input of type {t.input_type}, \
-            but previous output is of type {previous_output_type}\
-        """
-        previous_output_type = t.output_type
+TRANSFORMER_CLASS_ENV_VAR = "TRANSFORMER_CLASS"
+
+
+def load_transformer_from_env(
+    logger: Logger,
+) -> BaseTransformer | BaseStreamingTransformer:
+    transformer_name = must_get_env(TRANSFORMER_CLASS_ENV_VAR)
+    transformer = build_processor_from_name(
+        transformer_name,
+        logger,
+    )
+    expected_types = (BaseTransformer, BaseStreamingTransformer)
+    assert isinstance(
+        transformer,
+        expected_types,
+    ), f"Transformer must be one of {expected_types}, got {type(transformer).__name__}"
+
+    return transformer
+
+
+def build_processor_from_name(
+    processor_name: str,
+    logger: Logger,
+) -> type:
+    _processors = resolve_classes_from_names(
+        [processor_name],
+        logger,
+    )
+
+    assert (
+        len(_processors) == 1
+    ), f"Expected exactly one processor, got {len(_processors)}"
+
+    return _processors[0](logger)

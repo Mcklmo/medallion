@@ -1,0 +1,47 @@
+apiVersion: medallion/v1
+repo:
+  name: nemweb-dispatch-scada
+  owner: team-data-ingest
+  description: Scrapes dispatch SCADA data from NEMWEB
+
+defaults:
+  runtime:
+    cpu: 1
+    memory: 512Mi
+    timeout: 300s
+    min_instances: 0
+    max_instances: 10
+    concurrency: 10
+
+schemas:
+  - name: FileOutput
+  - name: DispatchScadaModel
+
+queues:
+  - name: raw-dispatch-scada-csv-files
+    schema: FileOutput
+  - name: processed-dispatch-scada-data
+    schema: DispatchScadaModel
+
+extractors:
+  - name: nemweb-dispatch-scada
+    class: DispatchScadaExtractor
+    writes_to: raw-dispatch-scada-csv-files
+    schedules:
+      - name: peak-hours
+        cron: "0/10 12 * * *"   
+        timezone: Europe/Copenhagen
+    runtime:
+      timeout: 1800s
+      memory: 1Gi
+      max_instances: 1
+
+transformers:
+  - name: dispatch-scada-csv-to-model
+    class: DispatchScadaTransformer
+    reads_from: raw-dispatch-scada-csv-files
+    writes_to: processed-dispatch-scada-data
+    runtime:
+      concurrency: 50
+      max_instances: 20
+      min_instances: 1

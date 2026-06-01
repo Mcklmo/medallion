@@ -1,7 +1,4 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
@@ -12,7 +9,7 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Pytest (Poetry)",
+            "name": "Test all",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
@@ -23,30 +20,100 @@
             "justMyCode": false
         },
         {
-            "name": "CLI: Run User Pipeline (example)",
+            "name": "Test specific",
             "type": "debugpy",
             "request": "launch",
-            "module": "medallion.medallion",
+            "module": "pytest",
             "python": "${command:python.interpreterPath}",
-            "args": "${input:pipelineClasses}",
+            "args": [
+                "--maxfail=1",
+                "--disable-warnings",
+                "-q",
+                "${input:testFile}"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "env": {
-                "MEDALLION_ROOT": "${workspaceFolder}/example"
-            },
             "justMyCode": false
         },
         {
-            "name": "Code: Run User Pipeline (example)",
+            "name": "Configure VS Code Debugger",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/example/basic/run.py",
+            "program": "${workspaceFolder}/medallion/configure_entrypoint/configure_runtime.py",
             "python": "${command:python.interpreterPath}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "env": {
-                "MEDALLION_ROOT": "${workspaceFolder}/example"
+            "justMyCode": false
+        },
+        {
+            "name": "Uvicorn: medallion.run.extractor",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "python": "${command:python.interpreterPath}",
+            "args": [
+                "medallion.run.extractor:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8080"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Generate docker compose from config.yml",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.configure_entrypoint.generate_docker_compose",
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Attach to docker service",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
             },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/medallion",
+                    "remoteRoot": "/app/medallion"
+                },
+                {
+                    "localRoot": "${workspaceFolder}/example/nemweb",
+                    "remoteRoot": "/app/src"
+                }
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Deploy to GCP",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.configure_entrypoint.deploy_google_cloud_project",
+            "python": "${command:python.interpreterPath}",
+            "args": [
+                "${input:action}"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": false
+        },
+        {
+            "name": "Run Pipeline: DispatchScadaExtractor -> DispatchScadaTransformer",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "medallion.medallion",
+            "args": [
+                "DispatchScadaExtractor",
+                "DispatchScadaTransformer"
+            ],
             "justMyCode": false
         }
     ],
@@ -56,6 +123,18 @@
             "type": "promptString",
             "description": "Pipeline classes",
             "default": "Extractor Transformer"
+        },
+        {
+            "id": "action",
+            "type": "promptString",
+            "description": "Action to perform (prepare, activate, rollback)",
+            "default": "prepare"
+        },
+        {
+            "id": "testFile",
+            "type": "promptString",
+            "description": "Test file to run (relative to workspace)",
+            "default": "test/test_horde.py"
         }
     ]
 }

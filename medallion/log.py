@@ -25,7 +25,15 @@ class ColoredFormatter(logging.Formatter):
         level_color = self.LEVEL_COLORS.get(record.levelno, self.RESET)
         colored_level = f"{level_color}{record.levelname}{self.RESET}"
 
-        return f"{colored_timestamp} - {colored_level} - {record.getMessage()}"
+        message = f"{colored_timestamp} - {colored_level} - {record.getMessage()}"
+
+        if record.exc_info:
+            message = f"{message}\n{self.formatException(record.exc_info)}"
+
+        if record.stack_info:
+            message = f"{message}\n{self.formatStack(record.stack_info)}"
+
+        return message
 
     def formatTime(self, record, datefmt=None):
         ct = self.converter(record.created)

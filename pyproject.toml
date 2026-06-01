@@ -23,7 +23,17 @@ dependencies = [
     "pydantic (>=2.13.4,<3.0.0)",
     "google-auth (>=2.52.0,<3.0.0)",
     "pendulum (>=3.2.0,<4.0.0)",
-    "google-cloud-storage (>=3.10.1,<4.0.0)"
+    "google-cloud-storage (>=3.10.1,<4.0.0)",
+    "beautifulsoup4 (>=4.14.3,<5.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)",
+    "python-dotenv (>=1.2.2,<2.0.0)",
+    "fastapi (>=0.136.1,<0.137.0)",
+    "google-cloud-pubsub (>=2.38.0,<3.0.0)",
+    "humanize (>=4.15.0,<5.0.0)",
+    "google-cloud-run (>=0.16.0,<0.17.0)",
+    "google-cloud-scheduler (>=2.19.0,<3.0.0)",
+    "google-cloud-build (>=3.36.0,<4.0.0)",
+    "google-cloud-secret-manager (>=2.28.0,<3.0.0)"
 ]
 
 [project.urls]
@@ -39,8 +49,23 @@ packages = [{include = "medallion"}]
 
 [dependency-groups]
 dev = [
-    "pytest (>=9.0.3,<10.0.0)"
+    "pytest (>=9.0.3,<10.0.0)",
+    "json5 (>=0.14.0,<0.15.0)",
+    "uvicorn (>=0.47.0,<0.48.0)",
+    "mypy (>=2.1.0,<3.0.0)",
+    "black (>=26.5.1,<27.0.0)",
+    "google-cloud-pubsub (>=2.38.0,<3.0.0)",
+    "types-PyYAML (>=6.0.0,<7.0.0)"
 ]
+
+
+[tool.mypy]
+plugins = ["pydantic.mypy"]
+
+# google.iam (and other google.* generated protos) ship without py.typed/stubs.
+[[tool.mypy.overrides]]
+module = "google.*"
+ignore_missing_imports = true
 
 
 [build-system]
