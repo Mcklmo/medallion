@@ -46,7 +46,7 @@ from google.api_core import exceptions as gcp_exceptions
 from google.cloud import pubsub_v1, run_v2, scheduler_v1, secretmanager  # type: ignore[attr-defined]
 from google.oauth2 import service_account
 
-from medallion.configure_entrypoint.configure_runtime import load_config
+from medallion.configure_entrypoint.vscode import load_config
 from medallion.configure_entrypoint.pipeline_graph_model import (
     Extractor,
     PipelineGraph,

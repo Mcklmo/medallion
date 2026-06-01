@@ -26,7 +26,7 @@ from typing import Any
 
 import yaml
 
-from medallion.configure_entrypoint.configure_runtime import (
+from medallion.configure_entrypoint.vscode import (
     DEFAULT_CONFIG_NAME,
     load_config,
 )

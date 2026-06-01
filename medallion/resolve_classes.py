@@ -5,7 +5,8 @@ import os
 import sys
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
-from medallion.store.base import must_get_env
+from medallion.store.base import get_env_or_default, must_get_env
+from pydantic import BaseModel
 
 
 def resolve_class(
@@ -20,19 +21,62 @@ def resolve_class(
     return cls
 
 
-def get_user_input() -> list[str]:
+VSCODE_COMMAND = "vscode"
+
+
+class VscodeOptions(BaseModel):
+    include_all: bool = False  # --all
+
+
+class UserInput(BaseModel):
+    class_names: list[str] = []
+    vscode: VscodeOptions | None = None  # None => run pipeline; set => configure vscode
+
+
+def get_user_input() -> UserInput:
+    argv = sys.argv[1:]
+
+    if argv and argv[0] == VSCODE_COMMAND:
+        vscode_options = parse_vscode_arguments(argv)
+
+        return UserInput(vscode=vscode_options)
+
     parser = argparse.ArgumentParser(
         prog="medallion",
-        description="Run a medallion scraper pipeline of user-defined classes.",
+        description=(
+            "Run a medallion scraper pipeline of user-defined classes, "
+            f"or use the '{VSCODE_COMMAND}' subcommand to generate VS Code "
+            "launch configurations (see 'medallion vscode -h')."
+        ),
     )
     parser.add_argument(
         "class_names",
         nargs="+",
         help="Pipeline classes in order: Extractor first, then Transformers.",
     )
+    args = parser.parse_args(argv)
 
-    args = parser.parse_args()
-    return args.class_names
+    return UserInput(class_names=args.class_names)
+
+
+def parse_vscode_arguments(argv: list[str]) -> VscodeOptions:
+    parser = argparse.ArgumentParser(
+        prog=f"medallion {VSCODE_COMMAND}",
+        description="Generate VS Code launch.json debug configurations.",
+    )
+    parser.add_argument(
+        "--all",
+        dest="include_all",
+        action="store_true",
+        help="Include all launch configurations.",
+    )
+
+    args = parser.parse_args(argv[1:])  # parse args AFTER the 'vscode' token
+    vscode_options = VscodeOptions(
+        include_all=args.include_all,
+    )
+
+    return vscode_options
 
 
 MEDALLION_ROOT_ENV = "MEDALLION_ROOT"
@@ -42,6 +86,7 @@ def resolve_user_package(logger: Logger) -> str:
     MEDALLION_ROOT = get_medallion_root()
     root = os.path.abspath(MEDALLION_ROOT)
     init_file = os.path.join(root, "__init__.py")
+
     assert os.path.isfile(init_file), f"No __init__.py found in {root}"
 
     log_init_once(logger, MEDALLION_ROOT)
@@ -54,11 +99,14 @@ def resolve_user_package(logger: Logger) -> str:
     # objects that fail identity-based equality.
     parts: list[str] = []
     current = root
+
     while True:
         parent, name = os.path.split(current)
         parts.insert(0, name)
+
         if not os.path.isfile(os.path.join(parent, "__init__.py")):
             break
+
         current = parent
 
     sys_path_entry = parent
@@ -80,7 +128,10 @@ def log_init_once(logger, MEDALLION_ROOT):
 
 
 def get_medallion_root():
-    return must_get_env(MEDALLION_ROOT_ENV)
+    return get_env_or_default(
+        MEDALLION_ROOT_ENV,
+        os.getcwd(),
+    )
 
 
 def load_classes(

@@ -39,37 +39,31 @@
             "name": "Configure VS Code Debugger",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/medallion/configure_entrypoint/configure_runtime.py",
-            "python": "${command:python.interpreterPath}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "justMyCode": false
+            "module": "medallion.medallion",
+            "justMyCode": false,
+            "args": [
+                "vscode"
+            ]
         },
         {
-            "name": "Uvicorn: medallion.run.extractor",
+            "name": "Run Extractor HTTP Server",
             "type": "debugpy",
             "request": "launch",
             "module": "uvicorn",
-            "python": "${command:python.interpreterPath}",
+            "justMyCode": false,
             "args": [
                 "medallion.run.extractor:app",
                 "--host",
                 "0.0.0.0",
                 "--port",
                 "8080"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "justMyCode": false
+            ]
         },
         {
-            "name": "Generate docker compose from config.yml",
+            "name": "Generate docker compose",
             "type": "debugpy",
             "request": "launch",
             "module": "medallion.configure_entrypoint.generate_docker_compose",
-            "python": "${command:python.interpreterPath}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
             "justMyCode": false
         },
         {
@@ -86,7 +80,7 @@
                     "remoteRoot": "/app/medallion"
                 },
                 {
-                    "localRoot": "${workspaceFolder}/example/nemweb",
+                    "localRoot": "/Users/moritzmarcushonscheidt/Projects/work/workspace-medallion/medallion/example/nemweb",
                     "remoteRoot": "/app/src"
                 }
             ],

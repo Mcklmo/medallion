@@ -1,4 +1,5 @@
 from logging import Logger
+from medallion.configure_entrypoint.vscode import write_launch_json_file
 from medallion.log import create_logger
 from medallion.pipeline import PipeLine
 from medallion.queue.mock import MockQueue
@@ -12,17 +13,24 @@ from medallion.store.initialize_storage import initialize_storage
 
 def main(
     logger: Logger = create_logger(),
-) -> None:
-    user_input_classes = get_user_input()
+) -> int:
+    user_input = get_user_input()
+
+    if user_input.vscode is not None:
+        write_launch_json_file(include_all=user_input.vscode.include_all)
+        return 0
+
     store_output = initialize_storage(
         logger,
     )
 
     classes = load_classes(
         logger=logger,
-        class_names=user_input_classes,
+        class_names=user_input.class_names,
     )
-    assert len(classes) >= 1, "At least an extractor class must be provided"
+    if not classes:
+        raise ValueError("At least an extractor class must be provided")
+
     transformer_instances = (
         [c(logger) for c in classes[1:]] if len(classes) > 1 else None
     )
@@ -41,6 +49,8 @@ def main(
     )
 
     pipe.run()
+
+    return 0
 
 
 if __name__ == "__main__":
