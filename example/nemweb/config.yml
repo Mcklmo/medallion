@@ -4,9 +4,6 @@ repo:
   owner: team-data-ingest
   description: Scrapes dispatch SCADA data from NEMWEB
 
-# ---------------------------------------------------------------
-# Defaults applied to all processors unless overridden per-processor.
-# ---------------------------------------------------------------
 defaults:
   runtime:
     cpu: 1
@@ -32,13 +29,12 @@ extractors:
     writes_to: raw-dispatch-scada-csv-files
     schedules:
       - name: peak-hours
-        cron: "0/10 12 * * *"    
+        cron: "0/10 12 * * *"   
         timezone: Europe/Copenhagen
     runtime:
-      # Scraping is I/O-bound and can be long-running; override defaults.
       timeout: 1800s
       memory: 1Gi
-      max_instances: 1 # be polite to the target site
+      max_instances: 1
 
 transformers:
   - name: dispatch-scada-csv-to-model
@@ -46,7 +42,6 @@ transformers:
     reads_from: raw-dispatch-scada-csv-files
     writes_to: processed-dispatch-scada-data
     runtime:
-      # Normalization is CPU-bound and fast; tune for throughput.
       concurrency: 50
       max_instances: 20
-      min_instances: 1 # keep one warm — avoids cold-start latency on bursts
+      min_instances: 1

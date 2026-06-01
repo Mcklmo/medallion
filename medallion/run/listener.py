@@ -140,6 +140,11 @@ class Listener(
             previous_steps = message.args.get(ARG_PREVIOUS_STEPS)
             item_index = message.args.get(ARG_ITEM_INDEX)
 
+            if item_index is None:
+                raise ValueError(
+                    f"Message args missing required {ARG_ITEM_INDEX}: {message.args}"
+                )
+
             assert (
                 start_time and previous_steps
             ), f"message[{message.args}] incomplete. Missing required message args: {ARG_EXECUTION_START_TIME} or {ARG_PREVIOUS_STEPS}"

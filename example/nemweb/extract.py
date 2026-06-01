@@ -1,40 +1,23 @@
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from io import BytesIO
 from itertools import islice
-from typing import Generator, Iterator
+from typing import Iterable
 from zipfile import ZipFile
 from bs4 import BeautifulSoup
-from medallion.model.extractor import BaseExtractor
+from medallion.model.extractor import BaseFileExtractor
 import requests
 
 from medallion.model.extractor import FileOutput
 
 
-class DispatchScadaExtractor(BaseExtractor[FileOutput]):
+class DispatchScadaExtractor(BaseFileExtractor):
     max_files_per_run = 1
     max_concurrent_downloads = 20
     timeout = 5
 
-    def extract(self) -> Iterator[FileOutput]:
+    def extract(self) -> Iterable[FileOutput]:
         session = requests.Session()
-
-        prepped = requests.Request(
-            "GET",
-            "https://www.nemweb.com.au/REPORTS/CURRENT/Dispatch_SCADA/",
-        ).prepare()
-        self.logger.info(f"Getting file urls from {prepped.url}")
-
-        listing = session.send(
-            prepped,
-            timeout=self.timeout,
-        )
-        listing.raise_for_status()
-
-        links = BeautifulSoup(listing.text, "html.parser").find_all("a")
-        urls = [
-            f"https://www.nemweb.com.au/{link['href']}"
-            for link in sorted(links, key=lambda x: x["href"], reverse=True)
-        ]
+        urls = self.get_csv_file_links(session)
 
         def _download(url: str) -> requests.Response:
             self.logger.info(f"Downloading {url}...")
@@ -89,21 +72,26 @@ class DispatchScadaExtractor(BaseExtractor[FileOutput]):
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
-        assert files_count > 0, "No CSV file found in the ZIP archive."
+        if files_count == 0:
+            raise RuntimeError("No CSV file found in the ZIP archive.")
 
-    def read_bytes(self, data: BytesIO) -> FileOutput:
-        extracted_bytes = data.getvalue()
-        return FileOutput.model_validate_json(extracted_bytes)
+    def get_csv_file_links(self, session: requests.Session) -> list[str]:
+        prepped = requests.Request(
+            "GET",
+            "https://www.nemweb.com.au/REPORTS/CURRENT/Dispatch_SCADA/",
+        ).prepare()
+        self.logger.info(f"Getting file urls from {prepped.url}")
 
-    @property
-    def file_extension(self):
-        return "csv"
+        listing = session.send(
+            prepped,
+            timeout=self.timeout,
+        )
+        listing.raise_for_status()
 
-    def write_output(
-        self,
-        output_data: Iterator[FileOutput] | FileOutput,
-    ) -> Iterator[BytesIO]:
-        if isinstance(output_data, list) or isinstance(output_data, Generator):
-            return [BytesIO(d.model_dump_json().encode()) for d in output_data]
+        links = BeautifulSoup(listing.text, "html.parser").find_all("a")
+        urls = [
+            f"https://www.nemweb.com.au/{link['href']}"
+            for link in sorted(links, key=lambda x: x["href"], reverse=True)
+        ]
 
-        return BytesIO(output_data.model_dump_json().encode())
+        return urls

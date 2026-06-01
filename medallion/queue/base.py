@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Iterator, Any
+from typing import Iterable, Any
 
 
 class Message(BaseModel):
@@ -22,7 +22,7 @@ class Message(BaseModel):
 
 class QueueReader(ABC):
     @abstractmethod
-    def read_stream(self) -> Iterator[Message]:
+    def read_stream(self) -> Iterable[Message]:
         """Yield messages indefinitely until the consumer is closed."""
 
     @abstractmethod

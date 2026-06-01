@@ -212,7 +212,7 @@ class PipelineGraph(StrictModel):
 
     def effective_runtime(
         self,
-        processor: "Extractor | Transformer | Store",
+        processor: ProcessorBase,
     ) -> EffectiveRuntime:
         """Merge fallback defaults, top-level defaults.runtime, and the processor's
         own runtime override into a fully-populated EffectiveRuntime. Lower-priority

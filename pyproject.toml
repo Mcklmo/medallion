@@ -51,8 +51,21 @@ packages = [{include = "medallion"}]
 dev = [
     "pytest (>=9.0.3,<10.0.0)",
     "json5 (>=0.14.0,<0.15.0)",
-    "uvicorn (>=0.47.0,<0.48.0)"
+    "uvicorn (>=0.47.0,<0.48.0)",
+    "mypy (>=2.1.0,<3.0.0)",
+    "black (>=26.5.1,<27.0.0)",
+    "google-cloud-pubsub (>=2.38.0,<3.0.0)",
+    "types-PyYAML (>=6.0.0,<7.0.0)"
 ]
+
+
+[tool.mypy]
+plugins = ["pydantic.mypy"]
+
+# google.iam (and other google.* generated protos) ship without py.typed/stubs.
+[[tool.mypy.overrides]]
+module = "google.*"
+ignore_missing_imports = true
 
 
 [build-system]

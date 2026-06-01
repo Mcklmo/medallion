@@ -63,20 +63,6 @@
             "justMyCode": false
         },
         {
-            "name": "Bootstrap Pubsub from config.yml",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "medallion.bootstrap",
-            "python": "${command:python.interpreterPath}",
-            "args": [
-                "--config",
-                "config.yml"
-            ],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "justMyCode": false
-        },
-        {
             "name": "Generate docker compose from config.yml",
             "type": "debugpy",
             "request": "launch",

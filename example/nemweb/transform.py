@@ -1,6 +1,5 @@
 import csv
 import decimal
-from io import BytesIO
 import pendulum
 
 from medallion.model.extractor import FileOutput
@@ -8,13 +7,15 @@ from medallion.model.extractor import FileOutput
 
 from .model import DispatchScadaModel
 from medallion.model.transformer import BasePydanticStreamingTransformer
+from medallion.model.base import FileReader
 
 
 class DispatchScadaTransformer(
     BasePydanticStreamingTransformer[
         FileOutput,
         DispatchScadaModel,
-    ]
+    ],
+    FileReader,
 ):
     def transform_one(
         self,
@@ -24,7 +25,7 @@ class DispatchScadaTransformer(
         reader = csv.reader(decoded_lines)
 
         results: list[DispatchScadaModel] = []
-        header = ""
+        header: list[str] = []
 
         for row in reader:
             first_column = row[0]
@@ -51,9 +52,3 @@ class DispatchScadaTransformer(
             results.append(model)
 
         return results
-
-    def read_input_bytes(self, data: BytesIO | bytes) -> FileOutput:
-        if isinstance(data, bytes):
-            return FileOutput.model_validate_json(data)
-
-        return FileOutput.model_validate_json(data.getvalue())

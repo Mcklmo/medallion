@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 from io import BytesIO
 import json
-from typing import Generator, Iterator, TypeVar, get_args, get_origin
+from typing import Any, Generator, Iterable, TypeVar, cast, get_args, get_origin
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class classproperty:
@@ -51,14 +51,17 @@ def _resolve_type_arg(cls: type, base: type, index: int) -> type:
     return result
 
 
-class ProcessingStep[Out](ABC):
-    @property
-    @abstractmethod
-    def file_extension(self) -> str:
-        pass
+class FileOutput(BaseModel):
+    content: bytes
+    is_full_file: bool = Field(
+        alias="is_full_file",
+        default=True,
+    )
 
+
+class ProcessingStep[Out](ABC):
     @abstractmethod
-    def write_output(self, output_data: Out) -> BytesIO:
+    def write_output(self, output_data: Out) -> BytesIO | list[BytesIO]:
         pass
 
     @property
@@ -69,10 +72,10 @@ class ProcessingStep[Out](ABC):
 class Writer[Out](ABC):
     @classproperty
     def output_type(cls) -> type:
-        return _resolve_type_arg(cls, Writer, 0)
+        return _resolve_type_arg(cast(type, cls), Writer, 0)
 
     @abstractmethod
-    def read_bytes(self, data: BytesIO) -> Out:
+    def load_cached(self, data: BytesIO) -> Out:
         """Used for loading cached data"""
         pass
 
@@ -80,11 +83,16 @@ class Writer[Out](ABC):
 class Reader[In](ABC):
     @classproperty
     def input_type(cls) -> type:
-        return _resolve_type_arg(cls, Reader, 0)
+        return _resolve_type_arg(cast(type, cls), Reader, 0)
 
     @abstractmethod
-    def read_input_bytes(self, data: BytesIO) -> In:
+    def read_input_bytes(self, data: bytes) -> In:
         pass
+
+
+class FileReader(Reader[FileOutput], ABC):
+    def read_input_bytes(self, data: bytes) -> FileOutput:
+        return FileOutput.model_validate_json(data)
 
 
 class BaseJSONStep[Out](ProcessingStep[Out]):
@@ -104,9 +112,10 @@ class BasePydanticProcessingStep[
     Out: BaseModel,
 ](
     ProcessingStep[Out],
+    Writer[Out],
     ABC,
 ):
-    def read_bytes(self, data: BytesIO | bytes) -> Out:
+    def load_cached(self, data: BytesIO | bytes) -> Out:
         if isinstance(data, BytesIO):
             byte_data = data.read()
         else:
@@ -115,25 +124,25 @@ class BasePydanticProcessingStep[
 
         schema = self.output_type
 
-        return [schema.model_validate(item) for item in json.loads(byte_data.decode())]
+        return cast(
+            Out,
+            [schema.model_validate(item) for item in json.loads(byte_data.decode())],
+        )
 
     def write_output(self, output_data: Out) -> BytesIO:
-        if isinstance(output_data, Generator):
-            output_data = list(output_data)
+        data: Any = output_data
 
-        if isinstance(output_data, Iterator):
-            output_data = list(output_data)
+        if isinstance(data, Generator):
+            data = list(data)
 
-        if isinstance(output_data, list):
-            output_data: list[BaseModel] = output_data
-            _output_data = [item.model_dump() for item in output_data]
+        if isinstance(data, Iterable):
+            data = list(data)
+
+        if isinstance(data, list):
+            _output_data = [item.model_dump() for item in data]
             return BytesIO(json.dumps(_output_data, indent=2).encode())
 
-        return BytesIO(output_data.model_dump_json(indent=2).encode())
-
-    @property
-    def file_extension(self) -> str:
-        return "json"
+        return BytesIO(data.model_dump_json(indent=2).encode())
 
     @property
     def header_line(self) -> bytes:

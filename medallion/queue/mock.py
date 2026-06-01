@@ -31,7 +31,7 @@ class MockQueue[T](Queue):
     def __exit__(self, *args):
         self._closed = True
 
-    def read_stream(self):
+    def read_stream(self) -> Iterable[Message]:
         inbox: queue.Queue = queue.Queue()
         with self._lock:
             for entry in self._initial:
@@ -62,11 +62,11 @@ class MockQueue[T](Queue):
                 except ValueError:
                     pass
 
-    def ack(self, message):
+    def ack(self, message) -> None:
         inbox: queue.Queue = message.raw_message
         inbox.task_done()
 
-    def nack(self, message):
+    def nack(self, message) -> None:
         inbox: queue.Queue = message.raw_message
         inbox.task_done()
 

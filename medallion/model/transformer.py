@@ -12,7 +12,7 @@ from medallion.model.base import (
 
 import json
 from abc import ABC, abstractmethod
-from typing import Iterator
+from typing import Iterable
 
 
 class BaseTransformer[In, Out](
@@ -28,11 +28,8 @@ class BaseTransformer[In, Out](
         self.logger = logger
 
     @abstractmethod
-    def transform(self, data: Iterator[In]) -> Iterator[Out]:
+    def transform(self, data: Iterable[In]) -> Iterable[Out]:
         pass
-
-    def read_input_bytes(self, data: BytesIO) -> BytesIO:
-        return data
 
 
 class BaseStreamingTransformer[
@@ -51,10 +48,10 @@ class BaseStreamingTransformer[
         self.logger = logger
 
     @abstractmethod
-    def transform_one(self, data: In) -> Out:
+    def transform_one(self, data: In) -> Out | list[Out]:
         pass
 
-    def transform(self, data: Iterator[In]) -> Iterator[Out]:
+    def transform(self, data: Iterable[In]) -> Iterable[Out]:
         for item in data:
             parsed = self.transform_one(item)
             if isinstance(parsed, list):
@@ -62,12 +59,6 @@ class BaseStreamingTransformer[
                 continue
 
             yield parsed
-
-    def read_input_bytes(self, data: BytesIO | bytes) -> BytesIO:
-        if isinstance(data, bytes):
-            return BytesIO(data)
-
-        return data
 
 
 class BaseJSONTransformer[In, Out](BaseTransformer[In, Out], BaseJSONStep[Out], ABC):

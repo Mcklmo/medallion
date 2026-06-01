@@ -1,3 +1,5 @@
+from io import BytesIO
+
 from medallion.log import create_logger
 from medallion.model.extractor import (
     ARG_EXECUTION_START_TIME,
@@ -15,7 +17,14 @@ from medallion.run.extractor import (
 )
 from medallion.store.base import must_get_env, MEDALLION_TOPIC_ENV
 from medallion.queue.base import Queue
-from pydantic import Field
+from pydantic import BaseModel, Field
+
+
+class Args(BaseModel):
+    execution_start_time: str = Field(alias=ARG_EXECUTION_START_TIME)  # type: ignore[literal-required]
+    previous_steps: list[str] = Field(alias=ARG_PREVIOUS_STEPS)  # type: ignore[literal-required]
+    is_chunk_end: bool = Field(alias=ARG_IS_CHUNK_END)  # type: ignore[literal-required]
+    item_index: int = Field(alias=ARG_ITEM_INDEX)  # type: ignore[literal-required]
 
 
 class TransformerListener(Listener):
@@ -34,27 +43,28 @@ class TransformerListener(Listener):
         self,
         data: bytes,
         is_chunk_end: bool,
-        start_time: float,
+        start_time: str,
         previous_steps: list[str],
         item_index: int,
     ) -> None:
         transformer = self.transformer
-        args = {
-            ARG_EXECUTION_START_TIME: start_time,
-            ARG_PREVIOUS_STEPS: previous_steps + [transformer.name],
-            ARG_IS_CHUNK_END: is_chunk_end,
-            ARG_ITEM_INDEX: item_index,
-        }
+        args = Args(
+            execution_start_time=start_time,
+            previous_steps=previous_steps + [transformer.name],
+            is_chunk_end=is_chunk_end,
+            item_index=item_index,
+        )
 
         if isinstance(transformer, BaseStreamingTransformer):
             message_data = transformer.read_input_bytes(data)
             output_data = transformer.transform_one(message_data)
             output_bytes = transformer.write_output(output_data)
+            assert isinstance(output_bytes, BytesIO)
 
             self.messages_out.write(
                 data=output_bytes.read(),
-                args=args,
-                ordering_key=ordering_key_from_steps(args[ARG_PREVIOUS_STEPS]),
+                args=args.model_dump(),
+                ordering_key=ordering_key_from_steps(args.previous_steps),
             )
 
             return
@@ -65,11 +75,12 @@ class TransformerListener(Listener):
 
         output_data = transformer.transform(self.messages_hot_store)
         output_bytes = transformer.write_output(output_data)
+        assert isinstance(output_bytes, BytesIO)
 
         self.messages_out.write(
             data=output_bytes.read(),
-            args=args,
-            ordering_key=ordering_key_from_steps(args[ARG_PREVIOUS_STEPS]),
+            args=args.model_dump(),
+            ordering_key=ordering_key_from_steps(args.previous_steps),
         )
         self.messages_hot_store.clear()
 

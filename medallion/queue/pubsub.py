@@ -2,9 +2,9 @@ import json
 import logging
 import queue as _q
 import threading
-from typing import Any, Iterator
+from typing import Any, Iterable
 
-from google.cloud import pubsub_v1
+from google.cloud import pubsub_v1  # type: ignore[attr-defined]
 
 from medallion.queue.base import Message, Queue
 
@@ -21,7 +21,7 @@ class PubSubQueue(Queue):
       subscription_id: subscription to pull from. Omit when only publishing.
 
     The consumer side bridges Pub/Sub's async callback-based streaming pull
-    onto the synchronous iterator that `Listener.run` expects: incoming
+    onto the synchronous Iterable that `Listener.run` expects: incoming
     messages are pushed into an in-memory queue and yielded by `messages()`.
     """
 
@@ -100,7 +100,7 @@ class PubSubQueue(Queue):
             ),
         )
 
-    def read_stream(self) -> Iterator[Message]:
+    def read_stream(self) -> Iterable[Message]:
         while True:
             try:
                 yield self._inbox.get(timeout=0.5)

@@ -43,13 +43,14 @@ import sys
 from pathlib import Path
 
 from google.api_core import exceptions as gcp_exceptions
-from google.cloud import pubsub_v1, run_v2, scheduler_v1, secretmanager
+from google.cloud import pubsub_v1, run_v2, scheduler_v1, secretmanager  # type: ignore[attr-defined]
 from google.oauth2 import service_account
 
 from medallion.configure_entrypoint.configure_runtime import load_config
 from medallion.configure_entrypoint.pipeline_graph_model import (
     Extractor,
     PipelineGraph,
+    ProcessorBase,
     Schedule,
     Store,
     Transformer,
@@ -90,8 +91,18 @@ log = create_logger()
 
 
 def derive_queues(graph: PipelineGraph) -> list[str]:
+    def get_queue_name(processor: Extractor | Transformer) -> str:
+        return processor.writes_to
+
     declared = {q.name for q in graph.queues}
-    written = {p.writes_to for p in (*graph.extractors, *graph.transformers)}
+    written: set[str] = set()
+
+    for e in graph.extractors:
+        written.add(get_queue_name(e))
+
+    for t in graph.transformers:
+        written.add(get_queue_name(t))
+
     return sorted(declared | written)
 
 
@@ -162,7 +173,7 @@ def ensure_topic(clients: Clients, topic: str) -> None:
 def build_and_push_image(
     clients: Clients,
     graph: PipelineGraph,
-    processor: Extractor | Transformer,
+    processor: ProcessorBase,
     google_application_credentials_path: Path,
     repository: str,
 ) -> str:
@@ -220,7 +231,7 @@ secret_client = secretmanager.SecretManagerServiceClient()
 def deploy_service(
     clients: Clients,
     graph: PipelineGraph,
-    processor: Extractor | Transformer | Store,
+    processor: ProcessorBase,
     image: str,
     kind: str,
     *,
@@ -444,7 +455,7 @@ def deploy_service(
 def scale_service_live(
     clients: Clients,
     graph: PipelineGraph,
-    processor: Extractor | Transformer | Store,
+    processor: ProcessorBase,
 ) -> None:
     """Activate: scale a 0/0 service to its configured min/max."""
     svc_id = processor.name

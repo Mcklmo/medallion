@@ -1,12 +1,12 @@
 import time
-from typing import Iterator
+from typing import Iterable
 
 from .model import Model
 from medallion.model.extractor import BasePydanticExtractor
 
 
 class Extractor(BasePydanticExtractor[Model]):
-    def extract(self) -> Iterator[Model]:
+    def extract(self) -> Iterable[Model]:
         items = [
             Model(name="Alice"),
             Model(name="Bob"),

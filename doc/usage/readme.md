@@ -3,16 +3,21 @@
 
 ## Start a new project
 
+Create boilerplate for your new project and set up an example file structure.
+
 ```bash
 medallion start MY_NEW_PROJECT_NAME
-poetry install --with dev use python13
 ```
 
-Creates boilerplate for your new project and sets up an example file structure.
+Install dependencies and create a virtual environment.
+
+```bash
+poetry install --with dev
+```
 
 ## Your business logic implementation
 
-See the `example/` folder for code examples. `example/default/` contains the bare minimum implementation that is also used for your initial default file structure.
+See the `example/` folder for code examples. `example/default/` contains a bare minimum implementation that is also used for your initial default file structure.
 
 ## Create debugging configurations for VS Code
 
@@ -40,13 +45,14 @@ Run the debug configuration `Generate docker compose from config.yml` or execute
 poetry run python -m medallion.configure_entrypoint.generate_docker_compose
 ```
 
-This validaes your `config.yml` and generates a `docker-compose.yml` and a `docker-compose.debug.yml`
+This validates your `config.yml` and generates a `docker-compose.yml` and a `docker-compose.debug.yml`
 
 The docker-compose file will:
 
 1. Run an isolated GCP Pub/Sub emulator host as microservice
-2. Run a microservice for each transformer from your `config.yml` file, as well as a store for each queue. The storage type is mounted to your local folder `.medallion-root`, which is meant to re-use the data folder you use for local runs.
-3. Run a microservice for each extractor, that listens on port 8001, 8002, ..., 8000+n for n extractors.
+2. Run a microservice for each transformer from your `config.yml` file
+3. Run a Store microservice for each queue defined in your `config.yml` file. The storage type is mounted to your local folder `.medallion-root`, which is meant to re-use the data folder you use for local runs.
+4. Run a microservice for each extractor, that listens on port 8001, 8002, ..., 8000+n for n extractors.
 
 To use it, run:
 
@@ -74,6 +80,12 @@ docker compose -f docker-compose.yml -f docker-compose.debug.yml up [--build]
 Once all containers are ready and their logs indicate that they're listening, run the debugging configuration `Attach to docker service`.
 
 ## Configure GCP Deployment
+
+`medallion` generates a Google Cloud Run fleet of services from your `config.yml`,
+using Pub/Sub as the broker and a storage bucket for each queue's Store — the
+same topology defined for local runs.
+
+... Detailed deployment docs are coming soon.
 
 ## Run an Extractor as HTTP Server
 

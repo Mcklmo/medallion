@@ -2,18 +2,19 @@ from io import BytesIO
 from logging import Logger
 
 import pendulum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from medallion.model.base import (
     BaseJSONStep,
     BasePydanticProcessingStep,
     ProcessingStep,
     Writer,
+    FileOutput,
 )
 
 
 from abc import ABC, abstractmethod
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator, cast, Generator
 
 from medallion.store.base import FOLDERNAME_DATETIME_FORMAT, BlobStore
 from medallion.store.base import must_get_env
@@ -34,15 +35,7 @@ def generate_utc_timestamp_foldername(utc_timestamp: pendulum.DateTime) -> str:
     return utc_timestamp.format(FOLDERNAME_DATETIME_FORMAT)
 
 
-class FileOutput(BaseModel):
-    content: bytes
-    is_full_file: bool = Field(
-        alias="is_full_file",
-        default=True,
-    )
-
-
-ARG_IS_FULL_FILE = FileOutput.model_fields["is_full_file"].alias
+ARG_IS_FULL_FILE: str = cast(str, FileOutput.model_fields["is_full_file"].alias)
 assert (
     ARG_IS_FULL_FILE == "is_full_file"
 ), "The alias for is_full_file must be 'is_full_file'"
@@ -74,7 +67,7 @@ class BaseExtractor[Out](
         self.force_run_extractor = is_force_extractor_run_enabled()
 
     @abstractmethod
-    def extract(self) -> Iterator[Out]:
+    def extract(self) -> Iterable[Out]:
         pass
 
     def stream_output(
@@ -190,12 +183,35 @@ class BaseExtractor[Out](
 
         for filename in files_at_path:
             downloaded_file = store.download_file(filename)
-            output = self.read_bytes(
+            output = self.load_cached(
                 downloaded_file,
             )
             data.append(output)
 
         return iter(data)
+
+
+class BaseFileExtractor(
+    BaseExtractor[FileOutput],
+    ABC,
+):
+    def load_cached(self, data: BytesIO) -> FileOutput:
+        extracted_bytes = data.getvalue()
+        return FileOutput.model_validate_json(extracted_bytes)
+
+    def write_output(
+        self,
+        output_data: Iterable[FileOutput] | FileOutput,
+    ) -> BytesIO | list[BytesIO]:
+        if isinstance(output_data, list) or isinstance(output_data, Generator):
+            return [BytesIO(d.model_dump_json().encode()) for d in output_data]
+
+        if not isinstance(output_data, FileOutput):
+            raise ValueError(
+                "output_data must be of type FileOutput or list[FileOutput]"
+            )
+
+        return BytesIO(output_data.model_dump_json().encode())
 
 
 class BaseJSONExtractor[Out](BaseExtractor[Out], BaseJSONStep[Out], ABC):

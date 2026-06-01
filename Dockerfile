@@ -19,7 +19,7 @@
 # --------------------------------------------------------------------------- #
 # Builder: resolve runtime deps into /app/.venv via Poetry.
 # --------------------------------------------------------------------------- #
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 
 ENV POETRY_VERSION=2.1.4 \
     POETRY_NO_INTERACTION=1 \
@@ -42,7 +42,7 @@ RUN poetry install --no-root --only main \
 # --------------------------------------------------------------------------- #
 # Runtime: slim image carrying the venv + sources only.
 # --------------------------------------------------------------------------- #
-FROM python:3.12-slim AS runtime
+FROM python:3.13-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -10,7 +10,9 @@ from medallion.store.base import must_get_env
 from medallion.store.initialize_storage import initialize_storage
 
 
-def main(logger: Logger) -> None:
+def main(
+    logger: Logger = create_logger(),
+) -> None:
     user_input_classes = get_user_input()
     store_output = initialize_storage(
         logger,
