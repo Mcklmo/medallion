@@ -1,0 +1,45 @@
+apiVersion: medallion/v1
+repo:
+  name: my-new-project
+
+defaults:
+  runtime:
+    cpu: 1
+    memory: 512Mi
+    timeout: 300s
+    min_instances: 0
+    max_instances: 10
+    concurrency: 10
+
+schemas:
+  - name: FileOutput
+  - name: SourceDataModel
+
+queues:
+  - name: raw-csv-files
+    schema: FileOutput
+  - name: processed-data
+    schema: SourceDataModel
+
+extractors:
+  - name: source-data
+    class: SourceDataExtractor
+    writes_to: raw-csv-files
+    schedules:
+      - name: peak-hours
+        cron: "0/10 12 * * *"   
+        timezone: Europe/Copenhagen
+    runtime:
+      timeout: 1800s
+      memory: 1Gi
+      max_instances: 1
+
+transformers:
+  - name: csv-to-model
+    class: SourceDataTransformer
+    reads_from: raw-csv-files
+    writes_to: processed-data
+    runtime:
+      concurrency: 50
+      max_instances: 20
+      min_instances: 1

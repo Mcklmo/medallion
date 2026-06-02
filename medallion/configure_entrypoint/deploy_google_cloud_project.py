@@ -78,11 +78,11 @@ from medallion.store.initialize_storage import (
 )
 from medallion.resolve_classes import (
     EXTRACTOR_CLASS_ENV_VAR,
-    MEDALLION_ROOT_ENV,
     TRANSFORMER_CLASS_ENV_VAR,
 )
 from medallion.store.base import (
     FILE_STORAGE_TYPE_ENV_VAR,
+    MEDALLION_ROOT_ENV,
     MEDALLION_TOPIC_ENV,
     must_get_env,
 )

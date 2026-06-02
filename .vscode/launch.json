@@ -80,7 +80,7 @@
                     "remoteRoot": "/app/medallion"
                 },
                 {
-                    "localRoot": "/Users/moritzmarcushonscheidt/Projects/work/workspace-medallion/medallion/example/nemweb",
+                    "localRoot": "/Users/moritzmarcushonscheidt/Projects/work/workspace-medallion/medallion",
                     "remoteRoot": "/app/src"
                 }
             ],

@@ -8,20 +8,29 @@ from medallion.model.transformer import BaseStreamingTransformer, BaseTransforme
 from medallion.store.base import get_env_or_default, must_get_env
 from pydantic import BaseModel
 
+from medallion.store.base import get_medallion_root
+from medallion.store.base import MEDALLION_ROOT_ENV
+
 
 def resolve_class(
     package_name: str,
     class_name: str,
 ) -> type:
-    pkg = importlib.import_module(package_name)
+    try:
+        pkg = importlib.import_module(package_name)
+    except ModuleNotFoundError as e:
+        raise ImportError(f"Package '{package_name}' not found") from e
+
     cls = getattr(pkg, class_name, None)
 
-    assert cls is not None, f"{class_name} not found in module {pkg.__path__}"
+    if cls is None:
+        raise ImportError(f"{class_name} not found in module {pkg.__path__}")
 
     return cls
 
 
 VSCODE_COMMAND = "vscode"
+START_PROJECT_COMMAND = "start"
 
 
 class VscodeOptions(BaseModel):
@@ -31,6 +40,7 @@ class VscodeOptions(BaseModel):
 class UserInput(BaseModel):
     class_names: list[str] = []
     vscode: VscodeOptions | None = None  # None => run pipeline; set => configure vscode
+    new_project_name: str | None = None  # None => run pipeline; set => start project
 
 
 def get_user_input() -> UserInput:
@@ -40,6 +50,17 @@ def get_user_input() -> UserInput:
         vscode_options = parse_vscode_arguments(argv)
 
         return UserInput(vscode=vscode_options)
+
+    if argv and argv[0] == START_PROJECT_COMMAND:
+        if len(argv) < 2 or len(argv) > 2:
+            raise ValueError(
+                f"Invalid usage of '{START_PROJECT_COMMAND}' command. "
+                "Usage: 'medallion start <project_name>'"
+            )
+
+        return UserInput(
+            new_project_name=argv[1],
+        )
 
     parser = argparse.ArgumentParser(
         prog="medallion",
@@ -79,15 +100,12 @@ def parse_vscode_arguments(argv: list[str]) -> VscodeOptions:
     return vscode_options
 
 
-MEDALLION_ROOT_ENV = "MEDALLION_ROOT"
-
-
 def resolve_user_package(logger: Logger) -> str:
-    MEDALLION_ROOT = get_medallion_root()
+    MEDALLION_ROOT = get_medallion_root() + "/src"
     root = os.path.abspath(MEDALLION_ROOT)
-    init_file = os.path.join(root, "__init__.py")
+    # init_file = os.path.join(root, "__init__.py")
 
-    assert os.path.isfile(init_file), f"No __init__.py found in {root}"
+    # assert os.path.isfile(init_file), f"No __init__.py found in {root}"
 
     log_init_once(logger, MEDALLION_ROOT)
 
@@ -113,7 +131,14 @@ def resolve_user_package(logger: Logger) -> str:
     if sys_path_entry not in sys.path:
         sys.path.insert(0, sys_path_entry)
 
-    return ".".join(parts)
+    package_dotted_name = ".".join(parts)
+
+    try:
+        _ = importlib.import_module(package_dotted_name)
+    except ModuleNotFoundError as e:
+        raise ImportError(f"Package '{package_dotted_name}' not found") from e
+
+    return package_dotted_name
 
 
 call_count = 0
@@ -125,13 +150,6 @@ def log_init_once(logger, MEDALLION_ROOT):
 
     if call_count == 1:
         logger.info(f"Set {MEDALLION_ROOT_ENV} to {MEDALLION_ROOT}")
-
-
-def get_medallion_root():
-    return get_env_or_default(
-        MEDALLION_ROOT_ENV,
-        os.getcwd(),
-    )
 
 
 def load_classes(
@@ -150,6 +168,8 @@ def resolve_classes_from_names(
     logger: Logger,
 ) -> list[type]:
     package_name = resolve_user_package(logger)
+    logger.info(f"Resolving classes from package '{package_name}'")
+
     classes = [
         resolve_class(
             package_name,
@@ -167,18 +187,18 @@ EXTRACTOR_CLASS_ENV_VAR = "EXTRACTOR_CLASS"
 def load_extractor_from_env(
     logger: Logger,
 ) -> BaseExtractor:
-    processor_name = must_get_env(EXTRACTOR_CLASS_ENV_VAR)
-    processor = build_processor_from_name(
-        processor_name,
+    extractor_name = must_get_env(EXTRACTOR_CLASS_ENV_VAR)
+    extractor = build_processor_from_name(
+        extractor_name,
         logger,
     )
 
     assert isinstance(
-        processor,
+        extractor,
         BaseExtractor,
-    ), f"Processor must be a {BaseExtractor.__name__}, got {type(processor).__name__}"
+    ), f"Extractor must be a {BaseExtractor.__name__}, got {type(extractor).__name__}"
 
-    return processor
+    return extractor
 
 
 TRANSFORMER_CLASS_ENV_VAR = "TRANSFORMER_CLASS"

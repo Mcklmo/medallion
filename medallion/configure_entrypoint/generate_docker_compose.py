@@ -27,7 +27,7 @@ from typing import Any
 import yaml
 
 from medallion.configure_entrypoint.vscode import (
-    DEFAULT_CONFIG_NAME,
+    DEFAULT_CONFIG_YAML_FILE_NAME,
     load_config,
 )
 from medallion.configure_entrypoint.pipeline_graph_model import (
@@ -50,7 +50,6 @@ from medallion.model.extractor import (
 from medallion.resolve_classes import (
     EXTRACTOR_CLASS_ENV_VAR,
     TRANSFORMER_CLASS_ENV_VAR,
-    get_medallion_root,
 )
 from medallion.run.extractor import (
     API_KEY_ENV,
@@ -83,8 +82,8 @@ RUN_MODULE = {
 # Image build context (the repo root, where the Dockerfile lives).
 BUILD_CONTEXT = "."
 
-# Path the processor classes are imported from (design.md: ./src/ by default).
-MEDALLION_ROOT = "/app/src"
+# Path to the root of the user project directory
+MEDALLION_ROOT = "/app"
 
 # Pub/Sub emulator host:port used inside the compose network.
 EMULATOR_HOST = "pubsub:8085"
@@ -343,25 +342,36 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    config = DEFAULT_CONFIG_NAME
     ap.add_argument("-o", "--output", type=Path, default=Path("docker-compose.yml"))
     args = ap.parse_args()
 
-    graph = load_config(config)
+    graph = load_config(DEFAULT_CONFIG_YAML_FILE_NAME)
+    generate_docker_compose(
+        DEFAULT_CONFIG_YAML_FILE_NAME.name,
+        args.output,
+        graph,
+    )
+
+
+def generate_docker_compose(
+    config_name: str,
+    output_path: Path,
+    graph: PipelineGraph,
+) -> None:
     compose = generate(graph)
 
     header = (
         "# AUTO-GENERATED from {src} by generate_compose.py — do not edit by hand.\n"
         "# Stores are synthesised (one per queue); any stores: block in the\n"
         "# config is ignored. Edit the config or the generator, then regenerate.\n"
-    ).format(src=config.name)
+    ).format(src=config_name)
 
-    with args.output.open("w") as fh:
+    with output_path.open("w") as fh:
         fh.write(header)
         yaml.safe_dump(compose, fh, sort_keys=False, default_flow_style=False)
 
     n = len(compose["services"]) - 2  # minus pubsub + bootstrap
-    print(f"  > wrote {args.output} ({n} processor services + emulator + bootstrap)")
+    print(f"  > wrote {output_path} ({n} processor services + emulator + bootstrap)")
 
 
 if __name__ == "__main__":

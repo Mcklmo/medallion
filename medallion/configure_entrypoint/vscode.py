@@ -7,15 +7,15 @@ import yaml
 
 from medallion.configure_entrypoint.pipeline_graph_model import PipelineGraph
 from medallion.log import create_logger
-from medallion.resolve_classes import get_medallion_root
+from medallion.store.base import get_medallion_root
 
 MEDALLION_ROOT = get_medallion_root()
-DEFAULT_CONFIG_NAME = Path(f"{MEDALLION_ROOT}/config.yml")
+DEFAULT_CONFIG_YAML_FILE_NAME = Path(f"{MEDALLION_ROOT}/config.yml")
 
 
 def load_config(path: Path | None = None) -> PipelineGraph:
     if path is None:
-        path = DEFAULT_CONFIG_NAME
+        path = DEFAULT_CONFIG_YAML_FILE_NAME
 
     raw = yaml.safe_load(path.read_text())
 

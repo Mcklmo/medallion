@@ -1,4 +1,5 @@
 from logging import Logger
+from medallion.configure_entrypoint.start_project import start_project
 from medallion.configure_entrypoint.vscode import write_launch_json_file
 from medallion.log import create_logger
 from medallion.pipeline import PipeLine
@@ -7,7 +8,7 @@ from medallion.resolve_classes import (
     get_user_input,
     load_classes,
 )
-from medallion.store.base import must_get_env
+from medallion.store.base import get_env_or_default, must_get_env
 from medallion.store.initialize_storage import initialize_storage
 
 
@@ -18,6 +19,10 @@ def main(
 
     if user_input.vscode is not None:
         write_launch_json_file(include_all=user_input.vscode.include_all)
+        return 0
+
+    if user_input.new_project_name:
+        start_project(user_input.new_project_name)
         return 0
 
     store_output = initialize_storage(
@@ -43,7 +48,10 @@ def main(
         store_output=store_output,
         store_cache=initialize_storage(
             logger,
-            local_output_dir=must_get_env("LOCAL_CACHE_DIR"),
+            local_output_dir=get_env_or_default(
+                "LOCAL_CACHE_DIR",
+                ".medallion-data/cache",
+            ),
         ),
         logger=logger,
     )

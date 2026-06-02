@@ -1,4 +1,4 @@
-from os import getenv
+from os import getcwd, getenv
 import re
 from abc import ABC, abstractmethod
 from io import BytesIO
@@ -9,14 +9,8 @@ import google.auth
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
-FOLDERNAME_DATETIME_FORMAT = "YYYY-MM-DDTHH-mm-ssSSS"
-FILE_STORAGE_TYPE_ENV_VAR = "FILE_STORAGE_TYPE"
-_LATEST_FILE_PATH_REGEX = re.compile(
-    r"^(?P<rel>\d{4}/\d{2}/\d{2}/\d{2}/"
-    r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\d{3})).*/.+$"
-)
+MEDALLION_TOPIC_ENV = "MEDALLION_TOPIC"
+MEDALLION_ROOT_ENV = "MEDALLION_ROOT"
 
 
 class MissingENVError(Exception):
@@ -37,6 +31,29 @@ def get_env_or_default(key: str, default: str) -> str:
         return default
 
     return value
+
+
+def get_medallion_root():
+    return get_env_or_default(
+        MEDALLION_ROOT_ENV,
+        getcwd(),
+    )
+
+
+def load_dotenv_from_medallion_root():
+    load_dotenv(
+        get_medallion_root() + "/.env",
+    )
+
+
+load_dotenv_from_medallion_root()
+
+FOLDERNAME_DATETIME_FORMAT = "YYYY-MM-DDTHH-mm-ssSSS"
+FILE_STORAGE_TYPE_ENV_VAR = "FILE_STORAGE_TYPE"
+_LATEST_FILE_PATH_REGEX = re.compile(
+    r"^(?P<rel>\d{4}/\d{2}/\d{2}/\d{2}/"
+    r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\d{3})).*/.+$"
+)
 
 
 def load_service_account_credentials():
@@ -125,6 +142,3 @@ class BlobStore(ABC):
                 latest_rel = match.group("rel")
 
         return latest_rel
-
-
-MEDALLION_TOPIC_ENV = "MEDALLION_TOPIC"
