@@ -4,7 +4,7 @@
 ![License](https://img.shields.io/pypi/l/medallion-pipeline.svg)
 ![Python](https://img.shields.io/pypi/pyversions/medallion-pipeline.svg)
 
-Medallion is a Python library for building and running scraper pipelines made of dozens or hundreds of processing steps. It targets three things that are usually hard to get at the same time: keeping the cost of changing a step low, making each step's output available to internal users in fractions of a second, and staying stable when a sudden spike in input (a "thundering herd") explodes the amount of data to process at any point in time.
+Medallion is a Python library for building and running scraper pipelines made of one or more processing steps. It targets three things that are usually hard to get at the same time: keeping the cost of changing a step low, making each step's output available to internal users in fractions of a second, and staying stable when a sudden spike in input (a "thundering herd") explodes the amount of data to process at any point in time.
 
 You write only the business logic. Medallion reduces the code you change to update a processing step to a single `extract()` or `transform()` method — queues, storage, wiring, schemas, and deployment artifacts are all derived from one `config.yml`. It deploys scrapers as isolated microservices, exposes each step's output directly as a stream internal users can subscribe to for near-instant availability, and archives every step's output automatically so you can replay the exact input for a step you've changed — without a replay-capable broker and without re-running the whole pipeline. Because the processing-step microservices are stateless by construction, thundering herds are absorbed by scaling horizontally rather than by tuning.
 
