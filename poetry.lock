@@ -605,11 +605,11 @@ google-api-core = {version = ">=2.17.1,<3.0.0", extras = ["grpc"]}
 google-auth = ">=2.14.1,<2.24.0 || >2.24.0,<2.25.0 || >2.25.0,<3.0.0"
 grpc-google-iam-v1 = ">=0.12.4,<1.0.0"
 grpcio = [
-    {version = ">=1.59.0,<2.0.0", markers = "python_version < \"3.14\""},
+    {version = ">=1.59.0,<2.0.0"},
     {version = ">=1.75.1,<2.0.0", markers = "python_version >= \"3.14\""},
 ]
 proto-plus = [
-    {version = ">=1.22.3,<2.0.0", markers = "python_version < \"3.13\""},
+    {version = ">=1.22.3,<2.0.0"},
     {version = ">=1.25.0,<2.0.0", markers = "python_version >= \"3.13\""},
 ]
 protobuf = ">=4.25.8,<8.0.0"
@@ -693,25 +693,25 @@ protobuf = ">=4.25.8,<8.0.0"
 
 [[package]]
 name = "google-cloud-scheduler"
-version = "2.19.0"
+version = "2.20.0"
 description = "Google Cloud Scheduler API client library"
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "google_cloud_scheduler-2.19.0-py3-none-any.whl", hash = "sha256:c92d185047e79f1b5e8ee370073926069096a4cb8bcfdbd295a87bb8e6891367"},
-    {file = "google_cloud_scheduler-2.19.0.tar.gz", hash = "sha256:308abe5b485a47971e5cb77456a61f35dded710807c94b33482a33857dd0a41d"},
+    {file = "google_cloud_scheduler-2.20.0-py3-none-any.whl", hash = "sha256:7e227cb2438c168ca214dc852eaa96f7066a8f206faec3a88c810a25fb5da6d8"},
+    {file = "google_cloud_scheduler-2.20.0.tar.gz", hash = "sha256:17fee4b894e588587f76518185f20b6f7ddbce04ca91bbbb325ea995222d2b87"},
 ]
 
 [package.dependencies]
-google-api-core = {version = ">=2.11.0,<3.0.0", extras = ["grpc"]}
+google-api-core = {version = ">=2.17.1,<3.0.0", extras = ["grpc"]}
 google-auth = ">=2.14.1,<2.24.0 || >2.24.0,<2.25.0 || >2.25.0,<3.0.0"
 grpcio = [
-    {version = ">=1.33.2,<2.0.0"},
+    {version = ">=1.59.0,<2.0.0", markers = "python_version < \"3.14\""},
     {version = ">=1.75.1,<2.0.0", markers = "python_version >= \"3.14\""},
 ]
 proto-plus = [
-    {version = ">=1.22.3,<2.0.0"},
+    {version = ">=1.22.3,<2.0.0", markers = "python_version < \"3.13\""},
     {version = ">=1.25.0,<2.0.0", markers = "python_version >= \"3.13\""},
 ]
 protobuf = ">=4.25.8,<8.0.0"
@@ -1996,4 +1996,4 @@ standard = ["colorama (>=0.4) ; sys_platform == \"win32\"", "httptools (>=0.6.3)
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "58540c264bfaed9e7a82578233d1c0f2226b5af76f9ea1f198eccee691a88fd8"
+content-hash = "0fbe9be5a90d7ef993b4b084750a364013140ee654ab575032f24207bf64ebe6"
