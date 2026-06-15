@@ -13,6 +13,10 @@ class LocalStorage(BlobStore):
         self.output_dir = output_dir
         self.logger = logger
 
+    def file_exists(self, destination_path: str) -> bool:
+        dest_path = os.path.join(self.output_dir, destination_path)
+        return os.path.exists(dest_path)
+
     def upload_file(
         self,
         destination_path: str,

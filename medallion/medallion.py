@@ -46,14 +46,8 @@ def main(
         extractor=classes[0](logger),
         transformers=transformer_instances,
         store_output=store_output,
-        store_cache=initialize_storage(
-            logger,
-            local_output_dir=get_env_or_default(
-                "LOCAL_CACHE_DIR",
-                ".medallion-data/cache",
-            ),
-        ),
         logger=logger,
+        force_run_transformer=must_get_env("FORCE_RUN_TRANSFORMER") == "true",
     )
 
     pipe.run()

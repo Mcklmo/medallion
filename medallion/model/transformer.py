@@ -1,6 +1,5 @@
 from io import BytesIO
 from logging import Logger
-from pydantic import BaseModel
 
 from medallion.model.base import (
     BaseJSONStep,
@@ -8,14 +7,17 @@ from medallion.model.base import (
     ProcessingStep,
     Reader,
     Writer,
+    DataModel,
 )
 
 import json
 from abc import ABC, abstractmethod
 from typing import Iterable
 
+from medallion.store.base import BlobStore
 
-class BaseTransformer[In, Out](
+
+class BaseTransformer[In: DataModel, Out: DataModel](
     ProcessingStep[Out],
     Writer[Out],
     Reader[In],
@@ -31,10 +33,25 @@ class BaseTransformer[In, Out](
     def transform(self, data: Iterable[In]) -> Iterable[Out]:
         pass
 
+    def check_cache(
+        self,
+        store: BlobStore,
+        previous_step_output: DataModel | list[DataModel] | None = None,
+    ) -> str | None:
+        raise NotImplementedError("check_cache is not implemented for BaseTransformer")
+
+    def run(
+        self,
+        previous_step_output: DataModel | list[DataModel] | None = None,
+    ) -> Iterable[Out]:
+        assert previous_step_output is not None
+        assert isinstance(previous_step_output, self.input_type)
+        return self.transform(previous_step_output)
+
 
 class BaseStreamingTransformer[
-    In,
-    Out,
+    In: DataModel,
+    Out: DataModel,
 ](
     ProcessingStep[Out],
     Writer[Out],
@@ -44,32 +61,60 @@ class BaseStreamingTransformer[
     def __init__(
         self,
         logger: Logger,
+        cache: BlobStore | None = None,
     ):
         self.logger = logger
+        self._cache = cache
 
     @abstractmethod
     def transform_one(self, data: In) -> Out | list[Out]:
         pass
 
-    def transform(self, data: Iterable[In]) -> Iterable[Out]:
-        for item in data:
-            parsed = self.transform_one(item)
-            if isinstance(parsed, list):
-                yield from parsed
-                continue
+    def check_cache(
+        self,
+        store: BlobStore,
+        previous_step_output: DataModel | list[DataModel] | None = None,
+    ) -> str | None:
+        if previous_step_output is None:
+            raise ValueError(
+                "previous_step_output is required for BaseStreamingTransformer"
+            )
 
-            yield parsed
+        if isinstance(previous_step_output, list):
+            raise ValueError(
+                "previous_step_output cannot be a list for BaseStreamingTransformer"
+            )
+
+        filename = previous_step_output.default_cache_key(
+            self.name,
+        )
+
+        if store.file_exists(filename):
+            return filename
+
+        return None
+
+    def run(
+        self,
+        previous_step_output: DataModel | list[DataModel] | None = None,
+    ) -> Iterable[Out] | Out:
+        assert previous_step_output is not None
+        assert isinstance(previous_step_output, self.input_type)
+
+        return self.transform_one(previous_step_output)
 
 
-class BaseJSONTransformer[In, Out](BaseTransformer[In, Out], BaseJSONStep[Out], ABC):
+class BaseJSONTransformer[In: DataModel, Out: DataModel](
+    BaseTransformer[In, Out], BaseJSONStep[Out], ABC
+):
     def read_bytes(self, data: BytesIO) -> Out:
         data.seek(0)
         return json.loads(data.read().decode())
 
 
 class BasePydanticTransformer[
-    In,
-    Out: BaseModel,
+    In: DataModel,
+    Out: DataModel,
 ](
     BaseTransformer[
         In,
@@ -82,8 +127,8 @@ class BasePydanticTransformer[
 
 
 class BasePydanticStreamingTransformer[
-    In,
-    Out: BaseModel,
+    In: DataModel,
+    Out: DataModel,
 ](
     BaseStreamingTransformer[
         In,

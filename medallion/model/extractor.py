@@ -77,9 +77,20 @@ class BaseExtractor[Out](
     ) -> None:
         utc_timestamp = pendulum.now("utc")
         start_time = generate_utc_timestamp_foldername(utc_timestamp)
-        data = self.load_or_extract_data(
+        data = self.load_cache_or_run(
             store,
+            self.logger,
+            self.force_run_extractor,
+            self.name,
+            None,
         )
+
+        if isinstance(data, self.output_type):
+            data = [data]
+
+        assert isinstance(data, Iterable)
+
+        data = iter(data)
 
         try:
             current_item = next(data)
@@ -148,47 +159,17 @@ class BaseExtractor[Out](
                 args,
             )
 
-    def load_or_extract_data(
+    def check_cache(
         self,
         store: BlobStore,
-    ) -> Iterator[Out]:
-        previous_run_filename: str | None = None
-
-        if not self.force_run_extractor:
-            self.logger.info(
-                f"Checking for previous extractor output in folder[{self.name}]..."
-            )
-            previous_run_filename = store.find_latest_file_in_folder(
-                self.name,
-            )
-
-        if not previous_run_filename or self.force_run_extractor:
-            if self.force_run_extractor:
-                self.logger.info(
-                    "Force run extractor enabled, skipping cache check and running extractor"
-                )
-            else:
-                self.logger.info(
-                    f"No previous extractor output found in folder[{self.name}], running extractor"
-                )
-
-            return iter(self.extract())
-
-        previous_run_file_path = f"{self.name}/{previous_run_filename}"
-        data: list[Out] = []
-        files_at_path = store.list_files_at(previous_run_file_path)
-        self.logger.warning(
-            f"Found previous extractor output: {previous_run_file_path}, loading {len(files_at_path)} files",
+        previous_step_output: Any | None = None,
+    ) -> str | None:
+        return store.find_latest_file_in_folder(
+            self.name,
         )
 
-        for filename in files_at_path:
-            downloaded_file = store.download_file(filename)
-            output = self.load_cached(
-                downloaded_file,
-            )
-            data.append(output)
-
-        return iter(data)
+    def run(self, previous_step_output: Any | None = None) -> Iterable[Out]:
+        return self.extract()
 
 
 class BaseFileExtractor(

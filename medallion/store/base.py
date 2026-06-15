@@ -91,6 +91,10 @@ def build_timestamp_path_segments(start_time: str) -> list[str]:
 
 class BlobStore(ABC):
     @abstractmethod
+    def file_exists(self, destination_path: str) -> bool:
+        pass
+
+    @abstractmethod
     def upload_file(
         self,
         destination_path: str,
@@ -118,7 +122,7 @@ class BlobStore(ABC):
         files = self.list_files_at(folder_path)
         prefix = f"{folder_path.rstrip('/')}/"
 
-        latest_rel = None
+        latest_folder_path = None
         latest_time = None
 
         for file_path in files:
@@ -139,6 +143,9 @@ class BlobStore(ABC):
 
             if latest_time is None or entry_time > latest_time:
                 latest_time = entry_time
-                latest_rel = match.group("rel")
+                latest_folder_path = "/".join(
+                    # drop the filename
+                    file_path.split("/")[:-1]
+                )
 
-        return latest_rel
+        return latest_folder_path

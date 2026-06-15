@@ -1,5 +1,4 @@
 from io import BytesIO
-
 from medallion.log import create_logger
 from medallion.model.extractor import (
     ARG_EXECUTION_START_TIME,
@@ -15,16 +14,24 @@ from medallion.run.extractor import (
     GOOGLE_CLOUD_PROJECT_ENV_VAR,
     ordering_key_from_steps,
 )
-from medallion.store.base import must_get_env, MEDALLION_TOPIC_ENV
+from medallion.store.base import BlobStore, must_get_env, MEDALLION_TOPIC_ENV
 from medallion.queue.base import Queue
 from pydantic import BaseModel, Field
 
+from medallion.store.initialize_storage import initialize_storage
+
+FORCE_RUN_TRANSFORMER_ENV_VAR = "FORCE_RUN_TRANSFORMER"
+
+
+def is_force_transformer_run_enabled():
+    return must_get_env(FORCE_RUN_TRANSFORMER_ENV_VAR).lower() == "true"
+
 
 class Args(BaseModel):
-    execution_start_time: str = Field(alias=ARG_EXECUTION_START_TIME)  # type: ignore[literal-required]
-    previous_steps: list[str] = Field(alias=ARG_PREVIOUS_STEPS)  # type: ignore[literal-required]
-    is_chunk_end: bool = Field(alias=ARG_IS_CHUNK_END)  # type: ignore[literal-required]
-    item_index: int = Field(alias=ARG_ITEM_INDEX)  # type: ignore[literal-required]
+    execution_start_time: str = Field(alias=ARG_EXECUTION_START_TIME)
+    previous_steps: list[str] = Field(alias=ARG_PREVIOUS_STEPS)
+    is_chunk_end: bool = Field(alias=ARG_IS_CHUNK_END)
+    item_index: int = Field(alias=ARG_ITEM_INDEX)
 
 
 class TransformerListener(Listener):
@@ -35,6 +42,8 @@ class TransformerListener(Listener):
         default_factory=list,
         description="Store for messages that are currently being processed. Used for non-streaming transformers (because they require to see all messages before producing output).",
     )
+    store: BlobStore
+    force_run_transformer: bool
 
     def _after_listen(self) -> None:
         self.messages_out.close()
@@ -57,7 +66,13 @@ class TransformerListener(Listener):
 
         if isinstance(transformer, BaseStreamingTransformer):
             message_data = transformer.read_input_bytes(data)
-            output_data = transformer.transform_one(message_data)
+            output_data = transformer.load_cache_or_run(
+                self.store,
+                self.logger,
+                self.force_run_transformer,
+                transformer.name,
+                message_data,
+            )
             output_bytes = transformer.write_output(output_data)
             assert isinstance(output_bytes, BytesIO)
 
@@ -69,11 +84,20 @@ class TransformerListener(Listener):
 
             return
 
+        self.messages_hot_store.append(data)
+
         if not is_chunk_end:
-            self.messages_hot_store.append(data)
             return
 
-        output_data = transformer.transform(self.messages_hot_store)
+        input_data = [transformer.read_input_bytes(d) for d in self.messages_hot_store]
+
+        output_data = transformer.load_cache_or_run(
+            self.store,
+            self.logger,
+            self.force_run_transformer,
+            transformer.name,
+            input_data,
+        )
         output_bytes = transformer.write_output(output_data)
         assert isinstance(output_bytes, BytesIO)
 
@@ -89,6 +113,7 @@ if __name__ == "__main__":
     project_id = must_get_env(GOOGLE_CLOUD_PROJECT_ENV_VAR)
     logger = create_logger()
     transformer = load_transformer_from_env(logger)
+    store = initialize_storage(logger)
     listener = TransformerListener(
         transformer=transformer,
         messages_in=PubSubQueue(
@@ -107,6 +132,8 @@ if __name__ == "__main__":
             logger=logger,
         ),
         max_retries=int(must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)),
+        force_run_transformer=is_force_transformer_run_enabled(),
         logger=create_logger(),
+        store=store,
     )
     listener.listen()

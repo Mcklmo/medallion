@@ -53,9 +53,9 @@ class Listener(
         arbitrary_types_allowed=True,
     )
     messages_in: Queue
-    dlq: Queue
     max_retries: int
     logger: Logger
+    dlq: Queue | None = None
     max_concurrent_messages: int = 8
     message_executor: ThreadPoolExecutor = Field(
         init=False,
@@ -108,7 +108,7 @@ class Listener(
                         break
 
                     self.logger.info(
-                        f"Received message of size[{naturalsize(len(message.data))}] with args[{message.args}]"
+                        f"{self.__class__.__name__} Received message of size[{naturalsize(len(message.data))}] with args[{message.args}]"
                     )
 
                     self.message_executor.submit(
@@ -164,6 +164,9 @@ class Listener(
             )
 
             if message.delivery_attempt >= self.max_retries:
+                if not self.dlq:
+                    raise e
+
                 self.logger.exception(
                     f"Dead-lettering message after {message.delivery_attempt} attempts: {message.args}",
                     exc_info=e,

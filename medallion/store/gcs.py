@@ -17,6 +17,10 @@ class GCStorage(BlobStore):
         )
         self.bucket = self.storage_client.bucket(bucket_name)
 
+    def file_exists(self, destination_path: str) -> bool:
+        blob = self.bucket.blob(destination_path)
+        return blob.exists()
+
     def upload_file(
         self,
         destination_path: str,

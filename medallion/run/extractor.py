@@ -76,7 +76,7 @@ def extract_and_stream(
     [],
     None,
 ]:
-    def task():
+    def task() -> None:
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures: list[Future] = []
 

@@ -10,6 +10,7 @@ from medallion.store.base import (
     build_timestamp_path_segments,
     must_get_env,
 )
+from medallion.model.base import DataModel, Writer
 from medallion.store.initialize_storage import initialize_storage
 from pydantic import Field
 
@@ -24,6 +25,7 @@ class StorageListener(Listener):
         default_factory=dict,
         description="Store for messages that are currently being processed. Keys are unique per pipeline.",
     )
+    cache_loader: Writer | None = None
 
     def process_message(
         self,
@@ -42,6 +44,15 @@ class StorageListener(Listener):
             self.messages_hot_store.setdefault(destination_folder_path, []).append(data)
             return
 
+        previous_step_output: DataModel | None = (
+            self.cache_loader.load_cached(BytesIO(data)) if self.cache_loader else None
+        )
+        hash_path: str | None = None
+
+        if previous_step_output is not None:
+            assert isinstance(previous_step_output, DataModel)
+            hash_path = previous_step_output.default_cache_key(previous_steps[-1])
+
         output_data = self.messages_hot_store.pop(destination_folder_path, []) + [data]
         for i, row in enumerate(output_data):
             file_prefix = f"{item_index}_{i}"
@@ -52,8 +63,17 @@ class StorageListener(Listener):
                     destination_path=f"{destination_folder_path}/{file_prefix}.json",
                     content=BytesIO(row),
                 )
+
+                if hash_path is not None:
+                    self.store.upload_file(
+                        destination_path=f"{hash_path}/{file_prefix}.json",
+                        content=BytesIO(row),
+                    )
             except json.JSONDecodeError:
                 self.upload_csv_content(destination_folder_path, file_prefix, row)
+
+                if hash_path is not None:
+                    self.upload_csv_content(hash_path, file_prefix, row)
 
     def upload_csv_content(
         self,
