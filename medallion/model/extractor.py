@@ -79,7 +79,6 @@ class BaseExtractor[Out](
         start_time = generate_utc_timestamp_foldername(utc_timestamp)
         data = self.load_cache_or_run(
             store,
-            self.logger,
             self.force_run_extractor,
             self.name,
             None,

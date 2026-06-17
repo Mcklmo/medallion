@@ -35,6 +35,9 @@ class StorageListener(Listener):
         previous_steps: list[str],
         item_index: int,
     ) -> None:
+        self.logger.info(
+            f"Storing message for {previous_steps} at {start_time} with item index {item_index}"
+        )
         destination_path_elements = (
             previous_steps + build_timestamp_path_segments(start_time) + [start_time]
         )
@@ -52,6 +55,10 @@ class StorageListener(Listener):
         if previous_step_output is not None:
             assert isinstance(previous_step_output, DataModel)
             hash_path = previous_step_output.default_cache_key(previous_steps[-1])
+        else:
+            self.logger.warning(
+                f"No previous step output found for {destination_folder_path}, skipping cache upload"
+            )
 
         output_data = self.messages_hot_store.pop(destination_folder_path, []) + [data]
         for i, row in enumerate(output_data):

@@ -114,6 +114,8 @@ class ProcessingStep[Out](ABC):
 
 
 class Writer[Out](ABC):
+    logger: Logger
+
     @classproperty
     def output_type(cls) -> type:
         return _resolve_type_arg(cast(type, cls), Writer, 0)
@@ -140,7 +142,6 @@ class Writer[Out](ABC):
     def load_cache_or_run(
         self,
         store: BlobStore,
-        logger: Logger,
         force_run: bool,
         name: str,
         previous_step_output: DataModel | list[DataModel] | None = None,
@@ -148,7 +149,7 @@ class Writer[Out](ABC):
         previous_run_filename: str | None = None
 
         if not force_run:
-            logger.info(f"Checking for cached output in folder[{name}]...")
+            self.logger.info(f"Checking for cached output in folder[{name}]...")
             previous_run_filename = self.check_cache(
                 store,
                 previous_step_output,
@@ -156,14 +157,14 @@ class Writer[Out](ABC):
 
         if not previous_run_filename or force_run:
             if force_run:
-                logger.info("Skipping cache and forcing a run.")
+                self.logger.info("Skipping cache and forcing a run.")
             else:
-                logger.info("Cache miss")
+                self.logger.info("Cache miss")
 
             return self.run(previous_step_output)
 
         files_at_path = store.list_files_at(previous_run_filename)
-        logger.info(
+        self.logger.info(
             f"Cache hit, loading output from: {previous_run_filename}, with {len(files_at_path)} files",
         )
 

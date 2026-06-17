@@ -68,7 +68,6 @@ class TransformerListener(Listener):
             message_data = transformer.read_input_bytes(data)
             output_data = transformer.load_cache_or_run(
                 self.store,
-                self.logger,
                 self.force_run_transformer,
                 transformer.name,
                 message_data,
@@ -93,7 +92,6 @@ class TransformerListener(Listener):
 
         output_data = transformer.load_cache_or_run(
             self.store,
-            self.logger,
             self.force_run_transformer,
             transformer.name,
             input_data,

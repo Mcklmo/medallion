@@ -57,11 +57,9 @@ class Listener(
     logger: Logger
     dlq: Queue | None = None
     max_concurrent_messages: int = 8
-    message_executor: ThreadPoolExecutor = Field(
+    message_executor: ThreadPoolExecutor | None = Field(
         init=False,
-        default=ThreadPoolExecutor(
-            max_workers=max_concurrent_messages,
-        ),
+        default=None,
     )
     shutdown: bool = Field(
         init=False,
@@ -92,7 +90,8 @@ class Listener(
             if hasattr(signal, "SIGUSR1"):
                 signal.signal(signal.SIGUSR1, handle_dump_signal)
 
-        self.logger.info(f"Starting listener[{self.__class__.__name__}]")
+        listener_name = self.__class__.__name__ + f"-{threading.current_thread().name}"
+        self.logger.info(f"Starting listener[{listener_name}]")
 
         health_server = (
             None
@@ -100,15 +99,17 @@ class Listener(
             else _start_health_server(self.logger)
         )
 
+        assert self.message_executor is not None
+
         with self.messages_in as consumer:
             try:
                 for message in consumer.read_stream():
                     if self.shutdown:
-                        self.logger.info("Shutting down listener")
+                        self.logger.info(f"{listener_name} Shutting down")
                         break
 
                     self.logger.info(
-                        f"{self.__class__.__name__} Received message of size[{naturalsize(len(message.data))}] with args[{message.args}]"
+                        f"{listener_name} Received message of size[{naturalsize(len(message.data))}] with args[{message.args}]"
                     )
 
                     self.message_executor.submit(
@@ -116,7 +117,15 @@ class Listener(
                         consumer,
                         message,
                     )
+            except Exception as e:
+                self.logger.exception(
+                    f"Error in listener[{listener_name}]",
+                    exc_info=e,
+                )
             finally:
+                self.logger.info(
+                    f"{listener_name} shutting down, waiting for in-flight messages to complete..."
+                )
                 self.message_executor.shutdown(wait=True)
                 self._after_listen()
 
@@ -206,6 +215,11 @@ class Listener(
         item_index: int,
     ) -> None:
         pass
+
+    def model_post_init(self, __context) -> None:
+        self.message_executor = ThreadPoolExecutor(
+            max_workers=self.max_concurrent_messages,
+        )
 
 
 LISTENER_MAX_RETRIES_ENV_VAR = "LISTENER_MAX_RETRIES"
