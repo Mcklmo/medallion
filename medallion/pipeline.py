@@ -6,12 +6,14 @@ from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import BaseStreamingTransformer
 from pydantic import BaseModel, ConfigDict, Field
 from medallion.run.extractor import extract_and_stream
-from medallion.run.store import StorageListener
+from medallion.run.store import StorageListener, PydanticFlatFileStore
 from medallion.run.transformer import TransformerListener
+
 from medallion.store.base import (
     BlobStore,
 )
 from medallion.queue.base import Queue
+from medallion.model.store import BaseStore
 
 
 class PipeLine(BaseModel):
@@ -27,6 +29,7 @@ class PipeLine(BaseModel):
     logger: Logger
     store_output: BlobStore
     force_run_transformer: bool
+    store: BaseStore | None = None
 
     def run(self) -> None:
         with ThreadPoolExecutor(max_workers=20) as executor:
@@ -36,15 +39,22 @@ class PipeLine(BaseModel):
                 StorageListener(
                     messages_in=extractor_output_queue,
                     logger=self.logger,
-                    store=self.store_output,
+                    store=PydanticFlatFileStore(
+                        store=self.store_output,
+                        logger=self.logger,
+                        input_type=self.extractor.output_type,
+                    ),
                     max_retries=0,
                     should_start_health_server=False,
                 ).listen
             )
 
+            last_queue = extractor_output_queue
+
             for i, t in enumerate(self.transformers or []):
                 queue_in = self.queues[i]
                 queue_out = self.queues[i + 1]
+                last_queue = queue_out
 
                 executor.submit(
                     TransformerListener(
@@ -63,10 +73,25 @@ class PipeLine(BaseModel):
                     StorageListener(
                         messages_in=queue_out,
                         logger=self.logger,
-                        store=self.store_output,
+                        store=PydanticFlatFileStore(
+                            store=self.store_output,
+                            logger=self.logger,
+                            input_type=t.output_type,
+                        ),
                         max_retries=0,
                         should_start_health_server=False,
                         cache_loader=t,
+                    ).listen
+                )
+
+            if self.store is not None:
+                executor.submit(
+                    StorageListener(
+                        messages_in=last_queue,
+                        logger=self.logger,
+                        store=self.store,
+                        max_retries=0,
+                        should_start_health_server=False,
                     ).listen
                 )
 
@@ -86,9 +111,12 @@ class PipeLine(BaseModel):
                     q.close()
 
     def model_post_init(self, context: Any) -> None:
+        transformer_count = len(self.transformers or [])
+        storage_queue_count = 1 if self.store is not None else 0
+        expected_queue_count = transformer_count + 1 + storage_queue_count
         assert (
-            len(self.queues) == len(self.transformers or []) + 1
-        ), "Number of queues must be equal to number of transformers + 1 (for extractor output)"
+            len(self.queues) == expected_queue_count
+        ), f"Expected {expected_queue_count} queues (number of transformers[{transformer_count}] + storage_queue_count[{storage_queue_count}] + 1 for extractor output). Got {len(self.queues)} queues."
 
         previous_output_type = self.extractor.output_type
 

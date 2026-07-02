@@ -1,8 +1,10 @@
+from logging import Logger
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from medallion.log import create_logger
 from medallion.model.extractor import BaseExtractor
+from medallion.model.store import BaseStore
 from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
 from medallion.resolve_classes import resolve_classes_from_names
 
@@ -149,29 +151,85 @@ class PipelineGraph(StrictModel):
     queues: list[Queue] = Field(default_factory=list)
     extractors: list[Extractor] = Field(default_factory=list)
     transformers: list[Transformer] = Field(default_factory=list)
+    stores: list[Store] = Field(default_factory=list)
 
     def model_post_init(self, context: Any) -> None:
         logger = create_logger()
+        output_schema_by_queue_name = self.map_schemas_to_classes(logger)
+
+        self.validate_extractors_schemas(
+            resolve_classes_from_names(
+                [e.class_ for e in self.extractors],
+                logger=logger,
+            ),
+            output_schema_by_queue_name,
+        )
+
+        self.validate_transformer_schemas(
+            output_schema_by_queue_name,
+            resolve_classes_from_names(
+                [t.class_ for t in self.transformers],
+                logger=logger,
+            ),
+        )
+
+        self.validate_store_schemas(
+            output_schema_by_queue_name,
+            resolve_classes_from_names(
+                [s.class_ for s in self.stores],
+                logger=logger,
+            ),
+        )
+
+    def map_schemas_to_classes(
+        self,
+        logger: Logger,
+    ) -> dict[
+        str,
+        type,
+    ]:
         schema_names = [s.name for s in self.schemas]
-        classes_schemas = resolve_classes_from_names(
-            schema_names,
-            logger=logger,
+        name_to_schema = dict(
+            zip(
+                schema_names,
+                resolve_classes_from_names(
+                    schema_names,
+                    logger=logger,
+                ),
+            )
         )
-        classes_extractor = resolve_classes_from_names(
-            [e.class_ for e in self.extractors],
-            logger=logger,
-        )
-        classes_transformer = resolve_classes_from_names(
-            [t.class_ for t in self.transformers],
-            logger=logger,
-        )
-        schema_names = [s.name for s in self.schemas]
-        name_to_schema = dict(zip(schema_names, classes_schemas))
 
         output_schema_by_queue_name = {
             q.name: name_to_schema[q.schema_] for q in self.queues
         }
 
+        return output_schema_by_queue_name
+
+    def validate_store_schemas(
+        self,
+        output_schema_by_queue_name: dict[str, type],
+        classes_stores: list[type],
+    ) -> None:
+        for store_config, store_class in zip(
+            self.stores,
+            classes_stores,
+        ):
+            assert issubclass(
+                store_class,
+                BaseStore,
+            ), f"Store class {store_class.__name__} must inherit from {BaseStore.__name__}"
+
+            input_schema = output_schema_by_queue_name[store_config.reads_from]
+
+            assert (
+                store_class.input_type == input_schema
+            ), f"Store {store_config.name} reads from queue {store_config.reads_from} with schema {input_schema.__name__}, but its input_type is {store_class.input_type.__name__}"
+
+    def validate_extractors_schemas(
+        self,
+        classes_extractor: list[type],
+        output_schema_by_queue_name: dict[str, type],
+    ) -> None:
         for extractor_class, extractor_config in zip(
             classes_extractor,
             self.extractors,
@@ -186,6 +244,11 @@ class PipelineGraph(StrictModel):
                 extractor_class.output_type == schema
             ), f"Extractor {extractor_config.name} writes to queue {extractor_config.writes_to} with schema {schema.__name__}, but its output_type is {extractor_class.output_type}"
 
+    def validate_transformer_schemas(
+        self,
+        output_schema_by_queue_name: dict[str, type],
+        classes_transformer: list[type],
+    ) -> None:
         for transformer_class, transformer_config in zip(
             classes_transformer,
             self.transformers,
@@ -238,7 +301,7 @@ class PipelineGraph(StrictModel):
 
         class GraphEntry(BaseModel):
             class_: str
-            writes_to: str
+            writes_to: str | None
             reads_from: str | None
 
         for extractor in self.extractors:
@@ -255,11 +318,24 @@ class PipelineGraph(StrictModel):
                 writes_to=transformer.writes_to,
             )
 
+        for store in self.stores:
+            graph[store.name] = GraphEntry(
+                class_=store.class_,
+                reads_from=store.reads_from,
+                writes_to=None,
+            )
+
         # Topologically sort the graph based on reads_from and writes_to
         visited = set()
         sorted_processors: list[str] = []
 
         def visit(node_name):
+            """Depth-first visit for topological sort.
+            If a node reads from a queue, visit the node that writes to that queue first.
+            Then add the current node to the sorted list.
+
+            This ensures that for any processor, all of its dependencies (processors that write to queues it reads from) come before it in the sorted list.
+            """
             if node_name in visited:
                 return
 
@@ -277,4 +353,6 @@ class PipelineGraph(StrictModel):
         for node_name in graph:
             visit(node_name)
 
-        return [[cls for cls in sorted_processors]]
+        sorted_pipeline_processors = [[cls for cls in sorted_processors]]
+
+        return sorted_pipeline_processors

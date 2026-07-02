@@ -1,8 +1,8 @@
-import csv
-from io import BytesIO, StringIO
-import json
+from io import BytesIO
+import threading
 from medallion.log import create_logger
 from medallion.queue.pubsub import PubSubQueue
+from medallion.model.store import BaseStore
 from medallion.run.extractor import GOOGLE_CLOUD_PROJECT_ENV_VAR
 from medallion.run.listener import LISTENER_MAX_RETRIES_ENV_VAR, Listener
 from medallion.store.base import (
@@ -10,13 +10,54 @@ from medallion.store.base import (
     build_timestamp_path_segments,
     must_get_env,
 )
-from medallion.model.base import DataModel, Writer
+from medallion.model.base import DataModel, PydanticReader, Writer
 from medallion.store.initialize_storage import initialize_storage
 from pydantic import Field
 
+from logging import Logger
+
+
+class PydanticFlatFileStore[In: DataModel](
+    BaseStore[In],
+    PydanticReader[In],
+):
+    def __init__(
+        self,
+        store: BlobStore,
+        logger: Logger,
+        input_type: type[In] | None = None,
+    ) -> None:
+        super().__init__(logger)
+        self.store = store
+        self.input_type = input_type  # shadows the classproperty on this instance; used by read_input_bytes
+
+    def store_message_data(
+        self,
+        file_prefix: str,
+        row: In,
+        destination_folder_path: str,
+        cache_path: str | None,
+    ) -> None:
+        data = row.model_dump_json(
+            by_alias=True,
+            indent=2,
+        ).encode()
+        self.store.upload_file(
+            destination_path=f"{destination_folder_path}/{file_prefix}.json",
+            content=BytesIO(data),
+        )
+
+        if cache_path is None:
+            return
+
+        self.store.upload_file(
+            destination_path=f"{cache_path}/{file_prefix}.json",
+            content=BytesIO(data),
+        )
+
 
 class StorageListener(Listener):
-    store: BlobStore
+    store: BaseStore
     messages_hot_store: dict[
         str,
         list[bytes],
@@ -36,8 +77,9 @@ class StorageListener(Listener):
         item_index: int,
     ) -> None:
         self.logger.info(
-            f"Storing message for {previous_steps} at {start_time} with item index {item_index}"
+            f"Storing message for {previous_steps} at {start_time} with item index {item_index} (thread: {threading.current_thread().name})"
         )
+
         destination_path_elements = (
             previous_steps + build_timestamp_path_segments(start_time) + [start_time]
         )
@@ -47,61 +89,42 @@ class StorageListener(Listener):
             self.messages_hot_store.setdefault(destination_folder_path, []).append(data)
             return
 
+        cache_path = self.generate_cache_path(
+            data,
+            previous_steps[-1],
+            destination_folder_path,
+        )
+
+        output_data = self.messages_hot_store.pop(destination_folder_path, []) + [data]
+        for i, row in enumerate(output_data):
+            _data = self.store.read_input_bytes(row)
+            self.store.store_message_data(
+                f"{item_index}_{i}",
+                _data,
+                destination_folder_path,
+                cache_path,
+            )
+
+    def generate_cache_path(
+        self,
+        data: bytes,
+        previous_step: str,
+        destination_folder_path: str,
+    ) -> str | None:
         previous_step_output: DataModel | None = (
             self.cache_loader.load_cached(BytesIO(data)) if self.cache_loader else None
         )
-        hash_path: str | None = None
 
-        if previous_step_output is not None:
-            assert isinstance(previous_step_output, DataModel)
-            hash_path = previous_step_output.default_cache_key(previous_steps[-1])
-        else:
+        if previous_step_output is None:
             self.logger.warning(
                 f"No previous step output found for {destination_folder_path}, skipping cache upload"
             )
 
-        output_data = self.messages_hot_store.pop(destination_folder_path, []) + [data]
-        for i, row in enumerate(output_data):
-            file_prefix = f"{item_index}_{i}"
+            return None
 
-            try:
-                json.loads(row)  # Check if it's valid JSON, if not treat as CSV
-                self.store.upload_file(
-                    destination_path=f"{destination_folder_path}/{file_prefix}.json",
-                    content=BytesIO(row),
-                )
+        assert isinstance(previous_step_output, DataModel)
 
-                if hash_path is not None:
-                    self.store.upload_file(
-                        destination_path=f"{hash_path}/{file_prefix}.json",
-                        content=BytesIO(row),
-                    )
-            except json.JSONDecodeError:
-                self.upload_csv_content(destination_folder_path, file_prefix, row)
-
-                if hash_path is not None:
-                    self.upload_csv_content(hash_path, file_prefix, row)
-
-    def upload_csv_content(
-        self,
-        destination_folder_path: str,
-        file_prefix: str,
-        potential_csv_files: bytes,
-    ) -> None:
-        reader = list(
-            csv.reader(
-                StringIO(potential_csv_files.decode()),
-                delimiter=",",
-            )
-        )
-        header = ",".join(reader[0])
-        values = [",".join(r) for r in reader[1:]]
-        csv_output_content = "\n".join(([header] if header else []) + values)
-
-        self.store.upload_file(
-            destination_path=f"{destination_folder_path}/{file_prefix}.csv",
-            content=BytesIO(csv_output_content.encode()),
-        )
+        return previous_step_output.default_cache_key(previous_step)
 
 
 if __name__ == "__main__":
@@ -111,7 +134,10 @@ if __name__ == "__main__":
         logger,
     )
     listener = StorageListener(
-        store=store,
+        store=PydanticFlatFileStore(
+            store=store,
+            logger=logger,
+        ),
         messages_in=PubSubQueue(
             project_id=project_id,
             subscription_id=must_get_env("MEDALLION_SUBSCRIPTION"),
