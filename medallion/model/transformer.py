@@ -89,6 +89,8 @@ class BaseStreamingTransformer[
             self.name,
         )
 
+        self.logger.info(f"Checking for cached output in folder[{filename}]...")
+
         if store.file_exists(filename):
             return filename
 
@@ -96,12 +98,14 @@ class BaseStreamingTransformer[
 
     def run(
         self,
-        previous_step_output: DataModel | list[DataModel] | None = None,
+        previous_step_output: list[DataModel] | None = None,
     ) -> Iterable[Out] | Out:
         assert previous_step_output is not None
-        assert isinstance(previous_step_output, self.input_type)
 
-        return self.transform_one(previous_step_output)
+        for item in previous_step_output:
+            assert isinstance(item, self.input_type)
+
+            yield self.transform_one(item)
 
 
 class BaseJSONTransformer[In: DataModel, Out: DataModel](

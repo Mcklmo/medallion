@@ -50,7 +50,7 @@ class TransformerListener(Listener):
 
     def process_message(
         self,
-        data: bytes,
+        data: list[bytes],
         is_chunk_end: bool,
         start_time: str,
         previous_steps: list[str],

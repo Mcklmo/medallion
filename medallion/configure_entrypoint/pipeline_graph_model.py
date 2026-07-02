@@ -142,6 +142,15 @@ class Store(ProcessorBase):
         if not self.name.lower().startswith(store_prefix.lower()):
             self.name = f"{store_prefix}{self.name}"
 
+        if self.runtime is not None:
+            if (
+                self.runtime.max_instances is not None
+                and self.runtime.max_instances > 1
+            ):
+                raise ValueError(
+                    f"Store '{self.name}' has max_instances={self.runtime.max_instances}, but stores must have max_instances=1 to avoid cross-instance lost-update race conditions"
+                )
+
 
 class PipelineGraph(StrictModel):
     apiVersion: Literal["medallion/v1"]
@@ -281,15 +290,24 @@ class PipelineGraph(StrictModel):
         own runtime override into a fully-populated EffectiveRuntime. Lower-priority
         layers fill any field the higher-priority layers left as None."""
         merged: dict[str, Any] = _RUNTIME_FALLBACKS.model_dump()
+
+        if isinstance(processor, Store):
+            # Store does an unsynchronised read-modify-write of a shared file; running
+            # >1 instance re-introduces a cross-instance lost-update race
+            merged["max_instances"] = 1
+
         for layer in (
             self.defaults.runtime if self.defaults else None,
             processor.runtime,
         ):
             if layer is None:
                 continue
+
             for field, value in layer.model_dump(exclude_none=True).items():
                 merged[field] = value
+
         merged["cpu"] = str(merged["cpu"])
+
         return EffectiveRuntime(**merged)
 
     def get_pipeline_names(self) -> list[list[str]]:

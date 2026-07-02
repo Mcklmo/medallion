@@ -16,7 +16,7 @@ class BaseStore[In: DataModel](
     def store_message_data(
         self,
         file_prefix: str,
-        row: In,
+        row: list[In],
         destination_folder_path: str,
         cache_path: str | None,
     ) -> None:

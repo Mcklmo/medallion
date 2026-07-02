@@ -75,7 +75,7 @@ defaults: # these apply to all extractors and transformers, unless overwritten
     memory: 512Mi
     timeout: 300s
     min_instances: 0
-    max_instances: 10
+    max_instances: 10 # stores automatically default to 1, because instances do an unsynchronised read-modify-write of a shared file; running >1 instance re-introduces a cross-instance lost-update race
     concurrency: 10
 
 schemas: # these are data models you define in Python and import in src/__init__.py

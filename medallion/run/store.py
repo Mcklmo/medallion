@@ -1,4 +1,5 @@
 from io import BytesIO
+import json
 import threading
 from medallion.log import create_logger
 from medallion.queue.pubsub import PubSubQueue
@@ -30,30 +31,56 @@ class PydanticFlatFileStore[In: DataModel](
         super().__init__(logger)
         self.store = store
         self.input_type = input_type  # shadows the classproperty on this instance; used by read_input_bytes
+        self._path_locks: dict[str, threading.Lock] = {}
+        self._path_locks_guard = threading.Lock()
+
+    def _lock_for(self, path: str) -> threading.Lock:
+        with self._path_locks_guard:
+            lock = self._path_locks.get(path)
+            if lock is None:
+                lock = threading.Lock()
+                self._path_locks[path] = lock
+
+            return lock
 
     def store_message_data(
         self,
         file_prefix: str,
-        row: In,
+        row: list[In],
         destination_folder_path: str,
         cache_path: str | None,
     ) -> None:
-        data = row.model_dump_json(
-            by_alias=True,
-            indent=2,
-        ).encode()
-        self.store.upload_file(
-            destination_path=f"{destination_folder_path}/{file_prefix}.json",
-            content=BytesIO(data),
-        )
+        destination_path = f"{destination_folder_path}/{file_prefix}.json"
 
-        if cache_path is None:
-            return
+        with self._lock_for(destination_path):
+            content: list[In] = []
 
-        self.store.upload_file(
-            destination_path=f"{cache_path}/{file_prefix}.json",
-            content=BytesIO(data),
-        )
+            if self.store.file_exists(destination_path):
+                _content_bytes = self.store.download_file(destination_path)
+                content = list(self.read_input_bytes(_content_bytes.getvalue()))
+
+            content.extend(row)
+
+            content_items: list[dict] = [
+                item.model_dump(
+                    by_alias=True,
+                )
+                for item in content
+            ]
+
+            json_bytes_io = BytesIO(json.dumps(content_items, indent=2).encode())
+            self.store.upload_file(
+                destination_path=f"{destination_folder_path}/{file_prefix}.json",
+                content=json_bytes_io,
+            )
+
+            if cache_path is None:
+                return
+
+            self.store.upload_file(
+                destination_path=f"{cache_path}/{file_prefix}.json",
+                content=json_bytes_io,
+            )
 
 
 class StorageListener(Listener):
@@ -70,7 +97,7 @@ class StorageListener(Listener):
 
     def process_message(
         self,
-        data: bytes,
+        data: list[bytes] | bytes,
         is_chunk_end: bool,
         start_time: str,
         previous_steps: list[str],
@@ -85,25 +112,19 @@ class StorageListener(Listener):
         )
         destination_folder_path = "/".join(destination_path_elements)
 
-        if not is_chunk_end:
-            self.messages_hot_store.setdefault(destination_folder_path, []).append(data)
-            return
-
+        _data = self.store.read_input_bytes(data)
         cache_path = self.generate_cache_path(
             data,
             previous_steps[-1],
             destination_folder_path,
         )
 
-        output_data = self.messages_hot_store.pop(destination_folder_path, []) + [data]
-        for i, row in enumerate(output_data):
-            _data = self.store.read_input_bytes(row)
-            self.store.store_message_data(
-                f"{item_index}_{i}",
-                _data,
-                destination_folder_path,
-                cache_path,
-            )
+        self.store.store_message_data(
+            "data",
+            _data,
+            destination_folder_path,
+            cache_path,
+        )
 
     def generate_cache_path(
         self,
@@ -121,6 +142,10 @@ class StorageListener(Listener):
             )
 
             return None
+
+        if isinstance(previous_step_output, list):
+            assert all(isinstance(item, DataModel) for item in previous_step_output)
+            return DataModel.cache_list(previous_step, previous_step_output)
 
         assert isinstance(previous_step_output, DataModel)
 
