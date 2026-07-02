@@ -1,3 +1,4 @@
+from collections import defaultdict
 from logging import Logger
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
@@ -311,66 +312,50 @@ class PipelineGraph(StrictModel):
         return EffectiveRuntime(**merged)
 
     def get_pipeline_names(self) -> list[list[str]]:
-        """Returns list of pipelines, where each pipeline is a list of processor class names in execution order."""
-        graph: dict[
-            str,
-            GraphEntry,
-        ] = {}
+        """Returns list of pipelines, where each pipeline is a list of processor class names in execution order.
 
-        class GraphEntry(BaseModel):
-            class_: str
-            writes_to: str | None
-            reads_from: str | None
-
-        for extractor in self.extractors:
-            graph[extractor.name] = GraphEntry(
-                class_=extractor.class_,
-                reads_from=None,
-                writes_to=extractor.writes_to,
-            )
+        Each pipeline runs extractor -> transformer(s) -> optional store, matching how
+        `medallion.medallion` consumes the class names. An extractor produces multiple
+        pipelines when several transformers/stores read from a queue it (transitively)
+        writes to. Paths that dead-end at a queue with no reader are still emitted so the
+        extractor/transformer remains runnable.
+        """
+        transformers_by_input: dict[str, list[Transformer]] = defaultdict(list)
 
         for transformer in self.transformers:
-            graph[transformer.name] = GraphEntry(
-                class_=transformer.class_,
-                reads_from=transformer.reads_from,
-                writes_to=transformer.writes_to,
-            )
+            transformers_by_input[transformer.reads_from].append(transformer)
+
+        stores_by_input: dict[str, list[Store]] = defaultdict(list)
 
         for store in self.stores:
-            graph[store.name] = GraphEntry(
-                class_=store.class_,
-                reads_from=store.reads_from,
-                writes_to=None,
-            )
+            stores_by_input[store.reads_from].append(store)
 
-        # Topologically sort the graph based on reads_from and writes_to
-        visited = set()
-        sorted_processors: list[str] = []
+        pipelines: list[list[str]] = []
 
-        def visit(node_name):
-            """Depth-first visit for topological sort.
-            If a node reads from a queue, visit the node that writes to that queue first.
-            Then add the current node to the sorted list.
+        def walk(queue_name: str, path: list[str], visited_queues: set[str]) -> None:
+            downstream_transformers = transformers_by_input.get(queue_name, [])
+            downstream_stores = stores_by_input.get(queue_name, [])
 
-            This ensures that for any processor, all of its dependencies (processors that write to queues it reads from) come before it in the sorted list.
-            """
-            if node_name in visited:
+            # Dead-end (no reader) or cycle guard: emit the path as-is and stop.
+            if queue_name in visited_queues or (
+                not downstream_transformers and not downstream_stores
+            ):
+                pipelines.append(path)
                 return
 
-            visited.add(node_name)
+            visited_queues = visited_queues | {queue_name}
 
-            node = graph[node_name]
-            if node.reads_from is not None:
-                # Find the processor that writes to the queue this node reads from
-                for other_name, other_node in graph.items():
-                    if other_node.writes_to == node.reads_from:
-                        visit(other_name)
+            for store in downstream_stores:
+                pipelines.append(path + [store.class_])
 
-            sorted_processors.append(node.class_)
+            for transformer in downstream_transformers:
+                walk(
+                    transformer.writes_to,
+                    path + [transformer.class_],
+                    visited_queues,
+                )
 
-        for node_name in graph:
-            visit(node_name)
+        for extractor in self.extractors:
+            walk(extractor.writes_to, [extractor.class_], set())
 
-        sorted_pipeline_processors = [[cls for cls in sorted_processors]]
-
-        return sorted_pipeline_processors
+        return pipelines
