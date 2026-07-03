@@ -62,6 +62,15 @@ class MockQueue[T](Queue):
                 except ValueError:
                     pass
 
+            # Drop anything this consumer will never process so that
+            # wait_drained() does not block forever on an abandoned inbox.
+            while True:
+                try:
+                    inbox.get_nowait()
+                    inbox.task_done()
+                except queue.Empty:
+                    break
+
     def ack(self, message) -> None:
         inbox: queue.Queue = message.raw_message
         inbox.task_done()
@@ -71,7 +80,6 @@ class MockQueue[T](Queue):
         inbox.task_done()
 
     def close(self) -> None:
-        self.wait_drained()
         self._closed = True
 
     def wait_drained(self) -> None:

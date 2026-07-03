@@ -3,11 +3,12 @@ from medallion.model.extractor import (
     ARG_IS_CHUNK_END,
     ARG_ITEM_INDEX,
     ARG_PREVIOUS_STEPS,
+    ARG_STORE_CACHE_AT_FOLDER,
 )
 from medallion.queue.base import Message, Queue
 
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 
 import faulthandler
@@ -17,7 +18,7 @@ import signal
 import sys
 import threading
 from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from logging import Logger
 from humanize import naturalsize
@@ -68,6 +69,8 @@ class Listener(
     should_start_health_server: bool = (
         True  # needed for GCP Cloud Run to probe the health of the container on startup
     )
+    _fatal_error: BaseException | None = PrivateAttr(default=None)
+    _fatal_error_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
     def request_shutdown(self) -> None:
         self.shutdown = True
@@ -102,21 +105,26 @@ class Listener(
         assert self.message_executor is not None
 
         with self.messages_in as consumer:
+            stream = consumer.read_stream()
+
             try:
-                for message in consumer.read_stream():
+                for message in stream:
                     if self.shutdown:
                         self.logger.info(f"{listener_name} Shutting down")
+                        self._nack_safely(consumer, message)
+
                         break
 
                     self.logger.info(
                         f"{listener_name} Received message of size[{naturalsize(len(message.data))}] with args[{message.args}]"
                     )
 
-                    self.message_executor.submit(
+                    future = self.message_executor.submit(
                         self._handle_message,
                         consumer,
                         message,
                     )
+                    future.add_done_callback(self._on_message_done)
             except Exception as e:
                 self.logger.exception(
                     f"Error in listener[{listener_name}]",
@@ -127,6 +135,14 @@ class Listener(
                     f"{listener_name} shutting down, waiting for in-flight messages to complete..."
                 )
                 self.message_executor.shutdown(wait=True)
+
+                # Close the stream generator explicitly so the queue can
+                # release this consumer immediately instead of waiting for GC
+                # (a traceback held by a fatal error keeps the frame alive).
+                close_stream = getattr(stream, "close", None)
+                if close_stream is not None:
+                    close_stream()
+
                 self._after_listen()
 
                 if self.should_start_health_server:
@@ -134,6 +150,26 @@ class Listener(
                         raise Exception("Health server is unexpectedly None")
 
                     health_server.shutdown()
+
+        if self._fatal_error is not None:
+            raise self._fatal_error
+
+    def _on_message_done(self, future: Future) -> None:
+        exception = future.exception()
+        if exception is None:
+            return
+
+        try:
+            self.logger.exception(
+                "Fatal error in message handler, shutting down",
+                exc_info=exception,
+            )
+        finally:
+            with self._fatal_error_lock:
+                if self._fatal_error is None:
+                    self._fatal_error = exception
+
+            self.request_shutdown()
 
     def _after_listen(self) -> None:
         """Hook for subclasses; runs once the listener has fully drained."""
@@ -174,6 +210,10 @@ class Listener(
 
             if message.delivery_attempt >= self.max_retries:
                 if not self.dlq:
+                    # Release the message before halting so in-memory queues
+                    # can drain and the broker can redeliver after restart.
+                    self._nack_safely(queue, message)
+
                     raise e
 
                 self.logger.exception(
@@ -197,13 +237,20 @@ class Listener(
                 exc_info=e,
             )
 
-            try:
-                queue.nack(message)
-            except Exception as e:
-                self.logger.exception(
-                    f"Failed to nack message: {message.args}",
-                    exc_info=e,
-                )
+            self._nack_safely(queue, message)
+
+    def _nack_safely(
+        self,
+        queue: Queue,
+        message: Message,
+    ) -> None:
+        try:
+            queue.nack(message)
+        except Exception as e:
+            self.logger.exception(
+                f"Failed to nack message: {message.args}",
+                exc_info=e,
+            )
 
     @abstractmethod
     def process_message(

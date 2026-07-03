@@ -43,8 +43,16 @@ class QueueReader(ABC):
     def close(self) -> None:
         """Signal `read_stream` to stop yielding and return.
 
-        Idempotent; safe to call from any thread. Does not release resources —
-        that still happens in `__exit__`.
+        Idempotent, non-blocking, safe to call from any thread. Does not
+        release resources — that still happens in `__exit__`.
+        """
+
+    def wait_drained(self) -> None:
+        """Block until every delivered message has been acked or nacked.
+
+        Default no-op: brokers like Pub/Sub track outstanding deliveries
+        themselves. In-memory queues override this to support ordered
+        pipeline drain.
         """
 
 

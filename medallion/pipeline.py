@@ -1,10 +1,11 @@
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from logging import Logger
 from typing import Any, Optional
 from medallion.model.transformer import BaseTransformer
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import BaseStreamingTransformer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from medallion.run.extractor import extract_and_stream
 from medallion.run.store import StorageListener, PydanticFlatFileStore
 from medallion.run.transformer import TransformerListener
@@ -30,12 +31,36 @@ class PipeLine(BaseModel):
     store_output: BlobStore
     force_run_transformer: bool
     store: BaseStore | None = None
+    _listener_error: BaseException | None = PrivateAttr(default=None)
+    _listener_error_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
+
+    def _on_listener_done(self, future: Future) -> None:
+        exception = future.exception()
+        if exception is None:
+            return
+
+        with self._listener_error_lock:
+            if self._listener_error is None:
+                self._listener_error = exception
+
+        # A listener died; close every queue so extraction and the remaining
+        # listeners stop instead of feeding a dead pipeline stage.
+        for q in self.queues:
+            q.close()
 
     def run(self) -> None:
+        listener_futures: list[Future] = []
+
+        def submit_listener(listen) -> None:
+            future = executor.submit(listen)
+
+            future.add_done_callback(self._on_listener_done)
+            listener_futures.append(future)
+
         with ThreadPoolExecutor(max_workers=20) as executor:
             extractor_output_queue = self.queues[0]
 
-            executor.submit(
+            submit_listener(
                 StorageListener(
                     messages_in=extractor_output_queue,
                     logger=self.logger,
@@ -56,7 +81,7 @@ class PipeLine(BaseModel):
                 queue_out = self.queues[i + 1]
                 last_queue = queue_out
 
-                executor.submit(
+                submit_listener(
                     TransformerListener(
                         messages_in=queue_in,
                         messages_out=queue_out,
@@ -69,7 +94,7 @@ class PipeLine(BaseModel):
                     ).listen
                 )
 
-                executor.submit(
+                submit_listener(
                     StorageListener(
                         messages_in=queue_out,
                         logger=self.logger,
@@ -85,7 +110,7 @@ class PipeLine(BaseModel):
                 )
 
             if self.store is not None:
-                executor.submit(
+                submit_listener(
                     StorageListener(
                         messages_in=last_queue,
                         logger=self.logger,
@@ -95,20 +120,34 @@ class PipeLine(BaseModel):
                     ).listen
                 )
 
+            extraction_error: Exception | None = None
             try:
                 extract_and_stream(
                     extractor=self.extractor,
                     queue_writer=extractor_output_queue,
                     store=self.store_output,
                 )()
+            except Exception as e:
+                extraction_error = e
             finally:
                 # Close every queue so all listener loops terminate, even if
                 # extraction failed partway through. Without this, run()'s
                 # ThreadPoolExecutor.__exit__ -> shutdown(wait=True) would
-                # block forever on listeners stuck reading from open queues,
-                # and the real exception would never propagate out of run().
+                # block forever on listeners stuck reading from open queues.
+                # Draining in pipeline order guarantees each stage has
+                # forwarded everything downstream before the next queue closes.
                 for q in self.queues:
                     q.close()
+                    q.wait_drained()
+
+        # The executor has fully drained here. A listener failure is the root
+        # cause — extraction errors are often just a consequence of the
+        # queues being closed on it — so it takes precedence.
+        if self._listener_error is not None:
+            raise self._listener_error
+
+        if extraction_error is not None:
+            raise extraction_error
 
     def model_post_init(self, context: Any) -> None:
         transformer_count = len(self.transformers or [])
