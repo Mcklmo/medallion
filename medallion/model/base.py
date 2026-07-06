@@ -56,6 +56,10 @@ def _resolve_type_arg(cls: type, base: type, index: int) -> type:
 
 
 class DataModel(BaseModel):
+    model_config = ConfigDict(
+        frozen=True,
+    )
+
     @staticmethod
     def hash(_content: bytes) -> str:
         hasher = hashlib.sha256()

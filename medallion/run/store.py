@@ -53,13 +53,10 @@ class PydanticFlatFileStore[In: DataModel](
         destination_path = f"{destination_folder_path}/{file_prefix}.json"
 
         with self._lock_for(destination_path):
-            content: list[In] = []
-
-            if self.store.file_exists(destination_path):
-                _content_bytes = self.store.download_file(destination_path)
-                content = list(self.read_input_bytes(_content_bytes.getvalue()))
-
-            content.extend(row)
+            content = self.load_and_combine_data(
+                row,
+                destination_path,
+            )
 
             content_items: list[dict] = [
                 item.model_dump(
@@ -84,6 +81,23 @@ class PydanticFlatFileStore[In: DataModel](
                 destination_path=f"{store_cache_at_folder}/{file_prefix}.json",
                 content=json_bytes_io,
             )
+
+    def load_and_combine_data(
+        self,
+        row: list[In],
+        destination_path: str,
+    ) -> list[In]:
+        content: dict[In, None] = {}
+
+        if self.store.file_exists(destination_path):
+            _content_bytes = self.store.download_file(destination_path)
+            for item in self.read_input_bytes(_content_bytes.getvalue()):
+                content[item] = None
+
+        for item in row:
+            content[item] = None
+
+        return list(content.keys())
 
 
 class StorageListener(Listener):
