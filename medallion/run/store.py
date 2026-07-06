@@ -48,7 +48,7 @@ class PydanticFlatFileStore[In: DataModel](
         file_prefix: str,
         row: list[In],
         destination_folder_path: str,
-        cache_path: str | None,
+        store_cache_at_folder: str | None = None,
     ) -> None:
         destination_path = f"{destination_folder_path}/{file_prefix}.json"
 
@@ -74,11 +74,14 @@ class PydanticFlatFileStore[In: DataModel](
                 content=json_bytes_io,
             )
 
-            if cache_path is None:
+            if store_cache_at_folder is None:
+                self.logger.warning(
+                    f"store_cache_at_folder is None. Skipping cache storage for {destination_path}"
+                )
                 return
 
             self.store.upload_file(
-                destination_path=f"{cache_path}/{file_prefix}.json",
+                destination_path=f"{store_cache_at_folder}/{file_prefix}.json",
                 content=json_bytes_io,
             )
 
@@ -102,7 +105,9 @@ class StorageListener(Listener):
         start_time: str,
         previous_steps: list[str],
         item_index: int,
+        store_cache_at_folder: str | None = None,
     ) -> None:
+
         self.logger.info(
             f"Storing message for {previous_steps} at {start_time} with item index {item_index} (thread: {threading.current_thread().name})"
         )
@@ -113,43 +118,13 @@ class StorageListener(Listener):
         destination_folder_path = "/".join(destination_path_elements)
 
         _data = self.store.read_input_bytes(data)
-        cache_path = self.generate_cache_path(
-            data,
-            previous_steps[-1],
-            destination_folder_path,
-        )
 
         self.store.store_message_data(
             "data",
             _data,
             destination_folder_path,
-            cache_path,
+            store_cache_at_folder,
         )
-
-    def generate_cache_path(
-        self,
-        data: bytes,
-        previous_step: str,
-        destination_folder_path: str,
-    ) -> str | None:
-        previous_step_output: DataModel | None = (
-            self.cache_loader.load_cached(BytesIO(data)) if self.cache_loader else None
-        )
-
-        if previous_step_output is None:
-            self.logger.warning(
-                f"No previous step output found for {destination_folder_path}, skipping cache upload"
-            )
-
-            return None
-
-        if isinstance(previous_step_output, list):
-            assert all(isinstance(item, DataModel) for item in previous_step_output)
-            return DataModel.cache_list(previous_step, previous_step_output)
-
-        assert isinstance(previous_step_output, DataModel)
-
-        return previous_step_output.default_cache_key(previous_step)
 
 
 if __name__ == "__main__":

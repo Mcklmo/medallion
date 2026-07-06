@@ -1,9 +1,11 @@
 from io import BytesIO
 from medallion.log import create_logger
+from medallion.model.base import DataModel
 from medallion.model.extractor import (
     ARG_EXECUTION_START_TIME,
     ARG_IS_CHUNK_END,
     ARG_ITEM_INDEX,
+    ARG_STORE_CACHE_AT_FOLDER,
 )
 from medallion.queue.pubsub import PubSubQueue
 from medallion.resolve_classes import load_transformer_from_env
@@ -32,6 +34,7 @@ class Args(BaseModel):
     previous_steps: list[str] = Field(alias=ARG_PREVIOUS_STEPS)
     is_chunk_end: bool = Field(alias=ARG_IS_CHUNK_END)
     item_index: int = Field(alias=ARG_ITEM_INDEX)
+    store_cache_at_folder: str = Field(alias=ARG_STORE_CACHE_AT_FOLDER)
 
 
 class TransformerListener(Listener):
@@ -55,22 +58,29 @@ class TransformerListener(Listener):
         start_time: str,
         previous_steps: list[str],
         item_index: int,
+        store_cache_at_folder: str | None = None,
     ) -> None:
         transformer = self.transformer
-        args = Args(
-            execution_start_time=start_time,
-            previous_steps=previous_steps + [transformer.name],
-            is_chunk_end=is_chunk_end,
-            item_index=item_index,
-        )
 
         if isinstance(transformer, BaseStreamingTransformer):
-            message_data = transformer.read_input_bytes(data)
+            input_data = transformer.read_input_bytes(data)
+            cache_path = DataModel.cache_list(
+                self.transformer.name,
+                list(input_data),
+            )
+            args = Args(
+                execution_start_time=start_time,
+                previous_steps=previous_steps + [transformer.name],
+                is_chunk_end=is_chunk_end,
+                item_index=item_index,
+                store_cache_at_folder=cache_path,
+            )
+
             output_data = transformer.load_cache_or_run(
                 self.store,
                 self.force_run_transformer,
                 transformer.name,
-                message_data,
+                list(input_data),
             )
             output_bytes = transformer.write_output(output_data)
             assert isinstance(output_bytes, BytesIO)
@@ -89,6 +99,18 @@ class TransformerListener(Listener):
             return
 
         input_data = [transformer.read_input_bytes(d) for d in self.messages_hot_store]
+
+        cache_path = DataModel.cache_list(
+            self.transformer.name,
+            input_data,
+        )
+        args = Args(
+            execution_start_time=start_time,
+            previous_steps=previous_steps + [transformer.name],
+            is_chunk_end=is_chunk_end,
+            item_index=item_index,
+            store_cache_at_folder=cache_path,
+        )
 
         output_data = transformer.load_cache_or_run(
             self.store,

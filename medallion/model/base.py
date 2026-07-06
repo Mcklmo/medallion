@@ -56,11 +56,6 @@ def _resolve_type_arg(cls: type, base: type, index: int) -> type:
 
 
 class DataModel(BaseModel):
-    input_content_hash: str | None = Field(
-        description="Hash of the input content used to generate this output, used for caching purposes",
-        default=None,
-    )
-
     @staticmethod
     def hash(_content: bytes) -> str:
         hasher = hashlib.sha256()
@@ -85,7 +80,7 @@ class DataModel(BaseModel):
     def default_cache_key(self, transformer_name: str) -> str:
         return self.create_cache_key(
             transformer_name,
-            self.input_content_hash or self.hash(self.stringify()),
+            self.hash(self.stringify()),
         )
 
     @staticmethod
@@ -281,6 +276,9 @@ class BasePydanticProcessingStep[
         schema = self.output_type
         data_json = json.loads(byte_data)
         if isinstance(data_json, list):
+            if all(isinstance(d, dict) for d in data_json):
+                return [cast(Out, schema.model_validate(d)) for d in data_json]
+
             return [cast(Out, schema.model_validate_json(d)) for d in data_json]
 
         return cast(

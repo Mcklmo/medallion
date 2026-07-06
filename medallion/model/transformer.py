@@ -81,18 +81,20 @@ class BaseStreamingTransformer[
             )
 
         if isinstance(previous_step_output, list):
-            raise ValueError(
-                "previous_step_output cannot be a list for BaseStreamingTransformer"
+            filename = DataModel.cache_list(
+                self.name,
+                previous_step_output,
+            )
+        else:
+            filename = previous_step_output.default_cache_key(
+                self.name,
             )
 
-        filename = previous_step_output.default_cache_key(
-            self.name,
-        )
-
-        self.logger.info(f"Checking for cached output in folder[{filename}]...")
-
         if store.file_exists(filename):
+            self.logger.info(f"Cache hit:  {filename}")
             return filename
+
+        self.logger.info(f"Cache miss: {filename}")
 
         return None
 

@@ -23,6 +23,7 @@ ARG_EXECUTION_START_TIME = "execution_start_time"
 ARG_PREVIOUS_STEPS = "previous_steps"
 ARG_IS_CHUNK_END = "is_chunk_end"
 ARG_ITEM_INDEX = "item_index"
+ARG_STORE_CACHE_AT_FOLDER = "store_cache_at_folder"
 ORDERING_KEY_SEPARATOR = "|"
 FORCE_RUN_EXTRACTOR_ENV_VAR = "FORCE_RUN_EXTRACTOR"
 

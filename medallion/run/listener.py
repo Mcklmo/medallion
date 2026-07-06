@@ -184,6 +184,7 @@ class Listener(
             start_time = message.args.get(ARG_EXECUTION_START_TIME)
             previous_steps = message.args.get(ARG_PREVIOUS_STEPS)
             item_index = message.args.get(ARG_ITEM_INDEX)
+            store_cache_at_folder = message.args.get(ARG_STORE_CACHE_AT_FOLDER)
 
             if item_index is None:
                 raise ValueError(
@@ -200,6 +201,7 @@ class Listener(
                 start_time,
                 previous_steps,
                 item_index,
+                store_cache_at_folder,
             )
             queue.ack(message)
         except Exception as e:
@@ -260,6 +262,7 @@ class Listener(
         start_time: str,
         previous_steps: list[str],
         item_index: int,
+        store_cache_at_folder: str | None = None,
     ) -> None:
         pass
 

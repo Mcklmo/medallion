@@ -18,6 +18,6 @@ class BaseStore[In: DataModel](
         file_prefix: str,
         row: list[In],
         destination_folder_path: str,
-        cache_path: str | None,
+        store_cache_at_folder: str | None = None,
     ) -> None:
         pass
