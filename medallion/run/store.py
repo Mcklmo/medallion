@@ -13,7 +13,7 @@ from medallion.store.base import (
 )
 from medallion.model.base import DataModel, PydanticReader, Writer
 from medallion.store.initialize_storage import initialize_storage
-from pydantic import Field
+from pydantic import Field, TypeAdapter
 
 from logging import Logger
 
@@ -22,6 +22,8 @@ class PydanticFlatFileStore[In: DataModel](
     BaseStore[In],
     PydanticReader[In],
 ):
+    adapter = TypeAdapter(list[In])
+
     def __init__(
         self,
         store: BlobStore,
@@ -58,14 +60,14 @@ class PydanticFlatFileStore[In: DataModel](
                 destination_path,
             )
 
-            content_items: list[dict] = [
-                item.model_dump(
+            json_bytes_io = BytesIO(
+                self.adapter.dump_json(
+                    content,
                     by_alias=True,
+                    indent=2,
                 )
-                for item in content
-            ]
+            )
 
-            json_bytes_io = BytesIO(json.dumps(content_items, indent=2).encode())
             self.store.upload_file(
                 destination_path=f"{destination_folder_path}/{file_prefix}.json",
                 content=json_bytes_io,

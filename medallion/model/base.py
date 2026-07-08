@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from io import BytesIO
 import json
-from typing import Any, Iterable, TypeVar, cast, get_args, get_origin
+from typing import Iterable, TypeVar, cast, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field
 from logging import Logger
@@ -58,6 +58,8 @@ def _resolve_type_arg(cls: type, base: type, index: int) -> type:
 class DataModel(BaseModel):
     model_config = ConfigDict(
         frozen=True,
+        ser_json_bytes="base64",
+        val_json_bytes="base64",
     )
 
     @staticmethod
