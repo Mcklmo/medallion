@@ -15,8 +15,9 @@ Releases are automated: pushing a tag matching `v*` to `main` triggers [`.github
 3. Tag and push the tag — the tag's version *must* match `pyproject.toml`, or the workflow fails its sanity check:
 
    ```bash
-   git tag v0.1.3
-   git push origin v0.1.3
+   TAG=v0.3.0  # or v0.2.0, v1.0.0, etc.
+   git tag $TAG
+   git push origin $TAG
    ```
 
 4. PyPI rejects re-uploads of an existing version. If a release ships broken, bump again — don't try to overwrite.
