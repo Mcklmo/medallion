@@ -84,10 +84,12 @@ class BaseStreamingTransformer[
             filename = DataModel.cache_list(
                 self.name,
                 previous_step_output,
+                self.version,
             )
         else:
             filename = previous_step_output.default_cache_key(
                 self.name,
+                self.version,
             )
 
         if store.file_exists(filename):

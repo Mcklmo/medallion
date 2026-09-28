@@ -67,6 +67,7 @@ class TransformerListener(Listener):
             cache_path = DataModel.cache_list(
                 self.transformer.name,
                 list(input_data),
+                self.transformer.version,
             )
             args = Args(
                 execution_start_time=start_time,
@@ -103,6 +104,7 @@ class TransformerListener(Listener):
         cache_path = DataModel.cache_list(
             self.transformer.name,
             input_data,
+            self.transformer.version,
         )
         args = Args(
             execution_start_time=start_time,

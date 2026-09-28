@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from io import BytesIO
 import json
-from typing import Iterable, TypeVar, cast, get_args, get_origin
+from typing import ClassVar, Iterable, TypeVar, cast, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field
 from logging import Logger
@@ -80,22 +80,29 @@ class DataModel(BaseModel):
     def create_cache_key(
         transformer_name: str,
         hash: str,
+        version: str,
     ) -> str:
-        return f"cache/{transformer_name}/{hash}"
+        return f"cache/{transformer_name}/v{version}/{hash}"
 
-    def default_cache_key(self, transformer_name: str) -> str:
+    def default_cache_key(self, transformer_name: str, version: str) -> str:
         return self.create_cache_key(
             transformer_name,
             self.hash(self.stringify()),
+            version,
         )
 
     @staticmethod
-    def cache_list(transformer_name: str, items: list["DataModel"]) -> str:
+    def cache_list(
+        transformer_name: str,
+        items: list["DataModel"],
+        version: str,
+    ) -> str:
         bytes_list = b"".join([item.stringify() for item in items])
 
         return DataModel.create_cache_key(
             transformer_name,
             DataModel.hash(bytes_list),
+            version,
         )
 
 
@@ -116,6 +123,9 @@ class FileOutput(DataModel):
 
 
 class ProcessingStep[Out](ABC):
+    version: ClassVar[str] = "1"
+    """Bump when the step's output for the same input changes; it keys the step's cache."""
+
     @abstractmethod
     def write_output(self, output_data: Out) -> BytesIO | list[BytesIO]:
         pass
