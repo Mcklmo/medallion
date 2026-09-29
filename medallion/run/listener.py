@@ -21,6 +21,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import Future, ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from logging import Logger
+from typing import Any
 from humanize import naturalsize
 
 
@@ -202,6 +203,7 @@ class Listener(
                 previous_steps,
                 item_index,
                 store_cache_at_folder,
+                message.args,
             )
             queue.ack(message)
         except Exception as e:
@@ -263,6 +265,7 @@ class Listener(
         previous_steps: list[str],
         item_index: int,
         store_cache_at_folder: str | None = None,
+        message_args: dict[str, Any] | None = None,
     ) -> None:
         pass
 

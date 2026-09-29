@@ -4,7 +4,11 @@ from logging import Logger
 import os
 import sys
 from medallion.model.extractor import BaseExtractor
-from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
+from medallion.model.transformer import (
+    BaseGatherTransformer,
+    BaseStreamingTransformer,
+    BaseTransformer,
+)
 from medallion.store.base import get_env_or_default, must_get_env
 from pydantic import BaseModel
 
@@ -206,13 +210,13 @@ TRANSFORMER_CLASS_ENV_VAR = "TRANSFORMER_CLASS"
 
 def load_transformer_from_env(
     logger: Logger,
-) -> BaseTransformer | BaseStreamingTransformer:
+) -> BaseTransformer | BaseStreamingTransformer | BaseGatherTransformer:
     transformer_name = must_get_env(TRANSFORMER_CLASS_ENV_VAR)
     transformer = build_processor_from_name(
         transformer_name,
         logger,
     )
-    expected_types = (BaseTransformer, BaseStreamingTransformer)
+    expected_types = (BaseTransformer, BaseStreamingTransformer, BaseGatherTransformer)
     assert isinstance(
         transformer,
         expected_types,

@@ -112,6 +112,39 @@ transformers:
       min_instances: 1
 ```
 
+#### Batching, fan-out and gather
+
+Batch messages into one call, split one input into parts, and collect the parts again:
+
+```python
+from medallion.model.base import PydanticReader
+from medallion.model.transformer import (
+    BasePydanticGatherTransformer,
+    BasePydanticStreamingTransformer,
+)
+
+
+class SplitDocument(BasePydanticStreamingTransformer[Document, Group], PydanticReader[Document]):
+    fan_out = True  # each returned Group is published as its own message
+
+    def transform_one(self, data: Document) -> list[Group]: ...
+
+
+class SplitSentences(BasePydanticStreamingTransformer[Group, Group], PydanticReader[Group]):
+    batch_size = 32  # messages collected per call
+    max_batch_wait = 0.5  # seconds to wait for a full batch
+
+    def transform_one(self, data: Group) -> Group: ...
+
+    def transform_many(self, items: list[Group]) -> list[Group]: ...  # one result per item, in order
+
+
+class JoinDocument(BasePydanticGatherTransformer[Group, Document], PydanticReader[Group]):
+    def gather(self, parts: list[Group]) -> Document: ...  # parts in fan-out order
+```
+
+The steps chain in `config.yml` like any other transformers. Called in-process, `run()` passes all items to `transform_many` at once.
+
 ### Create debugging configurations for VS Code
 
 Medallion creates debugging configurations for your scraper pipelines, which you can run in the VS Code debugger. The `start` command already creates working configurations for the example extractor and transformer, so you can start debugging right away. Re-run the command after making changes to your `config.yml` file to update the debugging configurations with your new pipelines.

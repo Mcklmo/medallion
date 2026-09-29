@@ -157,7 +157,8 @@ class PubSubQueue(Queue):
             self._project_id,
             self._topic_id,
         )
-        attrs = {k: v if isinstance(v, str) else json.dumps(v) for k, v in args.items()}
+        # strings too: `_on_message` json-decodes every value, so a raw "123" or "1e5" would come back a number
+        attrs = {k: json.dumps(v) for k, v in args.items()}
         future = self._publisher.publish(
             topic_path,
             data,

@@ -16,6 +16,7 @@ from medallion.store.initialize_storage import initialize_storage
 from pydantic import Field, TypeAdapter
 
 from logging import Logger
+from typing import Any
 
 
 class PydanticFlatFileStore[In: DataModel](
@@ -79,9 +80,16 @@ class PydanticFlatFileStore[In: DataModel](
                 )
                 return
 
+            # only this message's rows: the destination combines every message of the run
             self.store.upload_file(
                 destination_path=f"{store_cache_at_folder}/{file_prefix}.json",
-                content=json_bytes_io,
+                content=BytesIO(
+                    self.adapter.dump_json(
+                        row,
+                        by_alias=True,
+                        indent=2,
+                    )
+                ),
             )
 
     def load_and_combine_data(
@@ -122,6 +130,7 @@ class StorageListener(Listener):
         previous_steps: list[str],
         item_index: int,
         store_cache_at_folder: str | None = None,
+        message_args: dict[str, Any] | None = None,
     ) -> None:
 
         self.logger.info(

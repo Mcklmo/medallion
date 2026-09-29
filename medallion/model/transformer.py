@@ -12,7 +12,7 @@ from medallion.model.base import (
 
 import json
 from abc import ABC, abstractmethod
-from typing import Iterable
+from typing import ClassVar, Iterable
 
 from medallion.store.base import BlobStore
 
@@ -58,6 +58,13 @@ class BaseStreamingTransformer[
     Reader[In],
     ABC,
 ):
+    batch_size: ClassVar[int] = 1
+    """Messages the listener collects before calling `transform_many`."""
+    max_batch_wait: ClassVar[float] = 0.5
+    """Seconds the listener waits for a batch to fill before running it anyway."""
+    fan_out: ClassVar[bool] = False
+    """Publish each item of a list output as its own message, for a `BaseGatherTransformer` to collect."""
+
     def __init__(
         self,
         logger: Logger,
@@ -69,6 +76,10 @@ class BaseStreamingTransformer[
     @abstractmethod
     def transform_one(self, data: In) -> Out | list[Out]:
         pass
+
+    def transform_many(self, items: list[In]) -> list[Out | list[Out]]:
+        """Override to process a batch at once; returns one result per item, in order."""
+        return [self.transform_one(item) for item in items]
 
     def check_cache(
         self,
@@ -103,13 +114,59 @@ class BaseStreamingTransformer[
     def run(
         self,
         previous_step_output: list[DataModel] | None = None,
-    ) -> Iterable[Out] | Out:
+    ) -> list[Out | list[Out]]:
         assert previous_step_output is not None
 
         for item in previous_step_output:
             assert isinstance(item, self.input_type)
 
-            yield self.transform_one(item)
+        return self.transform_many(list(previous_step_output))  # type: ignore[arg-type]
+
+
+class BaseGatherTransformer[
+    In: DataModel,
+    Out: DataModel,
+](
+    ProcessingStep[Out],
+    Writer[Out],
+    Reader[In],
+    ABC,
+):
+    """Collects the parts a `fan_out` transformer split one input into and emits one output."""
+
+    def __init__(
+        self,
+        logger: Logger,
+    ):
+        self.logger = logger
+
+    @abstractmethod
+    def gather(self, parts: list[In]) -> Out:
+        """`parts` are in the order the fan-out step emitted them."""
+
+    def check_cache(
+        self,
+        store: BlobStore,
+        previous_step_output: DataModel | list[DataModel] | None = None,
+    ) -> str | None:
+        assert isinstance(previous_step_output, list)
+        filename = DataModel.cache_list(self.name, previous_step_output, self.version)
+
+        if store.file_exists(filename):
+            self.logger.info(f"Cache hit:  {filename}")
+            return filename
+
+        self.logger.info(f"Cache miss: {filename}")
+
+        return None
+
+    def run(
+        self,
+        previous_step_output: DataModel | list[DataModel] | None = None,
+    ) -> Out:
+        assert isinstance(previous_step_output, list)
+
+        return self.gather(previous_step_output)  # type: ignore[arg-type]
 
 
 class BaseJSONTransformer[In: DataModel, Out: DataModel](
@@ -139,6 +196,20 @@ class BasePydanticStreamingTransformer[
     Out: DataModel,
 ](
     BaseStreamingTransformer[
+        In,
+        Out,
+    ],
+    BasePydanticProcessingStep[Out],
+    ABC,
+):
+    pass
+
+
+class BasePydanticGatherTransformer[
+    In: DataModel,
+    Out: DataModel,
+](
+    BaseGatherTransformer[
         In,
         Out,
     ],
