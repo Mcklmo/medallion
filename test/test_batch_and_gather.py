@@ -111,3 +111,25 @@ def test_fan_out_batch_and_gather(tmp_path, monkeypatch):
 
     assert Upper.batch_sizes == []
     assert joined_outputs(store) == [expected, expected]
+
+
+def test_config_accepts_gather_step():
+    from types import SimpleNamespace
+
+    from medallion.configure_entrypoint.pipeline_graph_model import (
+        PipelineGraph,
+        Transformer,
+    )
+
+    # a namespace, not a PipelineGraph: its model_post_init imports the classes from a project package
+    graph = SimpleNamespace(
+        transformers=[
+            Transformer(name="join", class_="Join", reads_from="groups", writes_to="docs")
+        ]
+    )
+
+    PipelineGraph.validate_transformer_schemas(
+        graph,  # type: ignore[arg-type]
+        {"groups": Group, "docs": Doc},
+        [Join],
+    )

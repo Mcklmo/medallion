@@ -5,6 +5,7 @@ import os
 import sys
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import (
+    TRANSFORMER_TYPES,
     BaseGatherTransformer,
     BaseStreamingTransformer,
     BaseTransformer,
@@ -216,11 +217,10 @@ def load_transformer_from_env(
         transformer_name,
         logger,
     )
-    expected_types = (BaseTransformer, BaseStreamingTransformer, BaseGatherTransformer)
     assert isinstance(
         transformer,
-        expected_types,
-    ), f"Transformer must be one of {expected_types}, got {type(transformer).__name__}"
+        TRANSFORMER_TYPES,
+    ), f"Transformer must be one of {TRANSFORMER_TYPES}, got {type(transformer).__name__}"
 
     return transformer
 

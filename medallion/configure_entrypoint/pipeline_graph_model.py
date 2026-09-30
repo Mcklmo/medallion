@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from medallion.log import create_logger
 from medallion.model.extractor import BaseExtractor
 from medallion.model.store import BaseStore
-from medallion.model.transformer import BaseStreamingTransformer, BaseTransformer
+from medallion.model.transformer import TRANSFORMER_TYPES
 from medallion.resolve_classes import resolve_classes_from_names
 
 
@@ -266,14 +266,10 @@ class PipelineGraph(StrictModel):
             input_schema = output_schema_by_queue_name[transformer_config.reads_from]
             output_schema = output_schema_by_queue_name[transformer_config.writes_to]
 
-            allowed_transformer_inheritance = (
-                BaseTransformer,
-                BaseStreamingTransformer,
-            )
             assert issubclass(
                 transformer_class,
-                allowed_transformer_inheritance,
-            ), f"Transformer class {transformer_class.__name__} must inherit from {allowed_transformer_inheritance}"
+                TRANSFORMER_TYPES,
+            ), f"Transformer class {transformer_class.__name__} must inherit from {TRANSFORMER_TYPES}"
 
             assert (
                 transformer_class.input_type == input_schema

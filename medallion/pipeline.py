@@ -4,7 +4,11 @@ from logging import Logger
 from typing import Any, Optional
 from medallion.model.transformer import BaseTransformer
 from medallion.model.extractor import BaseExtractor
-from medallion.model.transformer import BaseStreamingTransformer, BaseGatherTransformer
+from medallion.model.transformer import (
+    TRANSFORMER_TYPES,
+    BaseGatherTransformer,
+    BaseStreamingTransformer,
+)
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from medallion.run.extractor import extract_and_stream
 from medallion.run.store import StorageListener, PydanticFlatFileStore
@@ -164,8 +168,8 @@ class PipeLine(BaseModel):
         for t in self.transformers or []:
             assert isinstance(
                 t,
-                (BaseTransformer, BaseStreamingTransformer, BaseGatherTransformer),
-            ), f"Transformers must be of type {BaseTransformer.__name__}, {BaseStreamingTransformer.__name__} or {BaseGatherTransformer.__name__}"
+                TRANSFORMER_TYPES,
+            ), f"Transformers must be one of {TRANSFORMER_TYPES}"
 
             assert t.input_type == previous_output_type, f"""\
                 Transformer {t.__class__.__name__} expects input of type {t.input_type}, \

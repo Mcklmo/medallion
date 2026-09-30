@@ -169,6 +169,9 @@ class BaseGatherTransformer[
         return self.gather(previous_step_output)  # type: ignore[arg-type]
 
 
+TRANSFORMER_TYPES = (BaseTransformer, BaseStreamingTransformer, BaseGatherTransformer)
+
+
 class BaseJSONTransformer[In: DataModel, Out: DataModel](
     BaseTransformer[In, Out], BaseJSONStep[Out], ABC
 ):
