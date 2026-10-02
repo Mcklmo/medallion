@@ -105,12 +105,19 @@ class Listener(
 
         assert self.message_executor is not None
 
+        # the executor's queue is unbounded, so without this every message would be submitted at once
+        # and a fatal error would only stop the run after all of them were processed
+        free_slots = threading.BoundedSemaphore(self.max_concurrent_messages)
+
         with self.messages_in as consumer:
             stream = consumer.read_stream()
 
             try:
                 for message in stream:
+                    free_slots.acquire()
+
                     if self.shutdown:
+                        free_slots.release()
                         self.logger.info(f"{listener_name} Shutting down")
                         self._nack_safely(consumer, message)
 
@@ -125,7 +132,9 @@ class Listener(
                         consumer,
                         message,
                     )
+                    # after _on_message_done, so a fatal error is flagged before the next message is taken
                     future.add_done_callback(self._on_message_done)
+                    future.add_done_callback(lambda _: free_slots.release())
             except Exception as e:
                 self.logger.exception(
                     f"Error in listener[{listener_name}]",
@@ -180,6 +189,12 @@ class Listener(
         queue: Queue,
         message: Message,
     ) -> None:
+        # a sibling failed between this message being taken and starting: leave it for the next run
+        if self.shutdown:
+            self._nack_safely(queue, message)
+
+            return
+
         try:
             is_chunk_end = message.args.get(ARG_IS_CHUNK_END, False)
             start_time = message.args.get(ARG_EXECUTION_START_TIME)
