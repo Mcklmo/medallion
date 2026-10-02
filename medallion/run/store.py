@@ -36,6 +36,7 @@ class PydanticFlatFileStore[In: DataModel](
         self.input_type = input_type  # shadows the classproperty on this instance; used by read_input_bytes
         self._path_locks: dict[str, threading.Lock] = {}
         self._path_locks_guard = threading.Lock()
+        self._paths_stored_without_cache: set[str] = set()
 
     def _lock_for(self, path: str) -> threading.Lock:
         with self._path_locks_guard:
@@ -75,9 +76,12 @@ class PydanticFlatFileStore[In: DataModel](
             )
 
             if store_cache_at_folder is None:
-                self.logger.warning(
-                    f"store_cache_at_folder is None. Skipping cache storage for {destination_path}"
-                )
+                # every message of an extractor run lands here, so say it once per run, not per message
+                if destination_path not in self._paths_stored_without_cache:
+                    self._paths_stored_without_cache.add(destination_path)
+                    self.logger.warning(
+                        f"store_cache_at_folder is None. Skipping cache storage for {destination_path} (logged once per run)"
+                    )
                 return
 
             # only this message's rows: the destination combines every message of the run
