@@ -1,6 +1,9 @@
+import random
 import threading
+import time
 from concurrent.futures import Future
 from io import BytesIO
+from logging import Logger
 from typing import Any, Callable, cast
 from medallion.log import create_logger
 from medallion.model.base import DataModel
@@ -19,8 +22,13 @@ from medallion.model.transformer import (
     BaseGatherTransformer,
     BaseStreamingTransformer,
     BaseTransformer,
+    RetryLater,
 )
-from medallion.run.listener import LISTENER_MAX_RETRIES_ENV_VAR, Listener
+from medallion.run.listener import (
+    LISTENER_MAX_RETRIES_ENV_VAR,
+    Listener,
+    StopRequested,
+)
 from medallion.run.extractor import (
     ARG_PREVIOUS_STEPS,
     GOOGLE_CLOUD_PROJECT_ENV_VAR,
@@ -125,6 +133,97 @@ class _Batcher:
             start += len(items)
 
 
+class _Pacer:
+    """Spaces a step's uncached calls `min_interval` apart and pauses all of them on `RetryLater`."""
+
+    def __init__(
+        self,
+        step: BaseStreamingTransformer,
+        stopping: threading.Event,
+        logger: Logger,
+    ) -> None:
+        self._step = step
+        self._stopping = stopping
+        self._logger = logger
+        self._lock = threading.Lock()
+        self._next_call = 0.0
+        self._paused_until = 0.0
+        self._backoff = 5.0
+        self._calls = 0
+        self._retries = 0
+        self._logged_at = time.monotonic()
+
+    def call[T](self, run: Callable[[], T]) -> T:
+        retries = 0
+
+        while True:
+            self._wait_turn()
+
+            try:
+                result = run()
+            except RetryLater as e:
+                retries += 1
+                self._pause(e, retries)
+
+                continue
+
+            with self._lock:
+                self._backoff = 5.0
+
+            return result
+
+    def _wait_turn(self) -> None:
+        step = self._step
+
+        while True:
+            if self._stopping.is_set():
+                raise StopRequested()
+
+            with self._lock:
+                now = time.monotonic()
+                start = max(self._next_call, self._paused_until)
+
+                if start <= now:
+                    self._next_call = now + step.min_interval
+                    self._calls += 1
+
+                    if now - self._logged_at >= 60:
+                        self._logged_at = now
+                        self._logger.info(
+                            f"{step.name}: {self._calls} calls, {self._retries} retries, interval {step.min_interval}s"
+                        )
+
+                    return
+
+            self._stopping.wait(start - now)
+
+    def _pause(self, e: RetryLater, retries: int) -> None:
+        step = self._step
+        cap = step.max_retries_later
+
+        if cap is not None and retries > cap:
+            raise RuntimeError(
+                f"{step.name} still asked to retry later after {cap} retries: {e.reason}"
+            ) from e
+
+        with self._lock:
+            self._retries += 1
+
+            if e.after is None:
+                wait = min(
+                    self._backoff * random.uniform(0.8, 1.2), step.max_retry_wait
+                )
+                self._backoff = min(self._backoff * 2, step.max_retry_wait)
+            else:
+                wait = min(e.after, step.max_retry_wait)
+
+            self._paused_until = max(self._paused_until, time.monotonic() + wait)
+
+        self._logger.warning(
+            f"{step.name} retry later: {e.reason}; all threads pause {wait:.1f}s (attempt {retries}/{'unlimited' if cap is None else cap})"
+        )
+
+
 class TransformerListener(Listener):
     transformer: BaseTransformer | BaseStreamingTransformer | BaseGatherTransformer
     messages_out: Queue
@@ -136,22 +235,35 @@ class TransformerListener(Listener):
     store: BlobStore
     force_run_transformer: bool
     _batcher: _Batcher | None = PrivateAttr(default=None)
+    _pacer: _Pacer | None = PrivateAttr(default=None)
     _gather_locks: dict[str, threading.Lock] = PrivateAttr(default_factory=dict)
     _gather_locks_guard: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
     def model_post_init(self, __context) -> None:
         transformer = self.transformer
-        if (
-            isinstance(transformer, BaseStreamingTransformer)
-            and transformer.batch_size > 1
-        ):
+        if not isinstance(transformer, BaseStreamingTransformer):
+            super().model_post_init(__context)
+
+            return
+
+        pacer = self._pacer = _Pacer(transformer, self._stopping, self.logger)
+
+        if transformer.max_concurrent_messages is not None:
+            self.max_concurrent_messages = transformer.max_concurrent_messages
+
+        if transformer.batch_size > 1:
+            if self.max_concurrent_messages < transformer.batch_size:
+                self.logger.warning(
+                    f"{transformer.name}: max_concurrent_messages {self.max_concurrent_messages} raised to batch_size {transformer.batch_size}"
+                )
+
             # every message's thread blocks until its batch has run, so a smaller pool deadlocks
             self.max_concurrent_messages = max(
                 self.max_concurrent_messages,
                 transformer.batch_size,
             )
             self._batcher = _Batcher(
-                transformer.transform_many,
+                lambda items: pacer.call(lambda: transformer.transform_many(items)),
                 transformer.batch_size,
                 transformer.max_batch_wait,
             )
@@ -257,13 +369,16 @@ class TransformerListener(Listener):
             transformer.check_cache(self.store, input_data)
         )
 
-        if is_cached or self._batcher is None:
+        if is_cached:
             output_data = transformer.load_cache_or_run(
                 self.store,
                 self.force_run_transformer,
                 transformer.name,
                 input_data,
             )
+        elif self._batcher is None:
+            assert self._pacer is not None
+            output_data = self._pacer.call(lambda: transformer.run(input_data))
         else:
             output_data = self._batcher.submit(input_data)
 

@@ -145,6 +145,32 @@ class JoinDocument(BasePydanticGatherTransformer[Group, Document], PydanticReade
 
 The steps chain in `config.yml` like any other transformers. Called in-process, `run()` passes all items to `transform_many` at once.
 
+#### Rate-limited steps
+
+Pace a streaming step that calls a rate-limited API, and let it ask to retry instead of failing:
+
+```python
+from medallion import RetryLater
+
+
+class FetchEntry(BasePydanticStreamingTransformer[Word, Entry], PydanticReader[Word]):
+    min_interval = 4.0  # seconds between calls, across all threads of the step
+    max_concurrent_messages = 2  # messages handled at once (default 8, at least batch_size)
+    max_retries_later = 10  # consecutive retries of one call; the next RetryLater stops the run
+    max_retry_wait = 900.0  # longest pause, in seconds
+
+    def transform_one(self, data: Word) -> Entry:
+        response = requests.get(...)
+        if response.status_code == 429:
+            raise RetryLater("429", after=float(response.headers.get("Retry-After", 60)))
+        ...
+```
+
+- `RetryLater(reason, after=None)` pauses every thread of the step for `after` seconds, or backs off from 5 s (doubling, ±20% jitter) when `after` is None; a success resets the backoff. Each pause logs a warning; progress is logged every 60 s.
+- Cache hits are not paced. With `batch_size`, each `transform_many` call is one paced call.
+- Pacing is per process: N instances call N times as often. Retries happen within one Pub/Sub delivery.
+- Ctrl-C or SIGTERM ends a pause; its message is left for the next run.
+
 ### Create debugging configurations for VS Code
 
 Medallion creates debugging configurations for your scraper pipelines, which you can run in the VS Code debugger. The `start` command already creates working configurations for the example extractor and transformer, so you can start debugging right away. Re-run the command after making changes to your `config.yml` file to update the debugging configurations with your new pipelines.

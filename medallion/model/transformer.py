@@ -49,6 +49,19 @@ class BaseTransformer[In: DataModel, Out: DataModel](
         return self.transform(previous_step_output)
 
 
+class RetryLater(Exception):
+    """Raised by a streaming step to try the item again later; every thread of the step pauses meanwhile.
+
+    The listener retries within the same message, so on Pub/Sub all retries happen in one delivery.
+    """
+
+    def __init__(self, reason: str, after: float | None = None):
+        super().__init__(reason)
+        self.reason = reason
+        self.after = after
+        """Seconds to wait, e.g. from a Retry-After header; None backs off exponentially."""
+
+
 class BaseStreamingTransformer[
     In: DataModel,
     Out: DataModel,
@@ -64,6 +77,14 @@ class BaseStreamingTransformer[
     """Seconds the listener waits for a batch to fill before running it anyway."""
     fan_out: ClassVar[bool] = False
     """Publish each item of a list output as its own message, for a `BaseGatherTransformer` to collect."""
+    max_concurrent_messages: ClassVar[int | None] = None
+    """Messages handled at once; None keeps the listener's default (8). Raised to `batch_size` if lower."""
+    min_interval: ClassVar[float] = 0.0
+    """Minimum seconds between uncached calls, across all threads. Per process: N instances call N times as often."""
+    max_retry_wait: ClassVar[float] = 900.0
+    """Longest pause after a `RetryLater`, in seconds."""
+    max_retries_later: ClassVar[int | None] = 10
+    """Retries of one call after consecutive `RetryLater`s; the next one is a fatal error. None retries forever."""
 
     def __init__(
         self,
