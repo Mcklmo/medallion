@@ -1,4 +1,6 @@
+import signal
 import threading
+from contextlib import contextmanager
 from concurrent.futures import Future, ThreadPoolExecutor
 from logging import Logger
 from typing import Any, Optional
@@ -11,6 +13,7 @@ from medallion.model.transformer import (
 )
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from medallion.run.extractor import extract_and_stream
+from medallion.run.listener import Listener
 from medallion.run.store import StorageListener, PydanticFlatFileStore
 from medallion.run.transformer import TransformerListener
 
@@ -19,6 +22,28 @@ from medallion.store.base import (
 )
 from medallion.queue.base import Queue
 from medallion.model.store import BaseStore
+
+
+@contextmanager
+def _stop_listeners_on_signal(listeners: list[Listener]):
+    # listeners run off the main thread here, so their own signal handlers are never installed
+    if threading.current_thread() is not threading.main_thread():
+        yield
+
+        return
+
+    def stop(signum, frame):
+        for listener in listeners:
+            listener.request_shutdown()
+
+        raise KeyboardInterrupt
+
+    previous = {s: signal.signal(s, stop) for s in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        yield
+    finally:
+        for s, handler in previous.items():
+            signal.signal(s, handler)
 
 
 class PipeLine(BaseModel):
@@ -56,14 +81,19 @@ class PipeLine(BaseModel):
 
     def run(self) -> None:
         listener_futures: list[Future] = []
+        listeners: list[Listener] = []
 
-        def submit_listener(listen) -> None:
-            future = executor.submit(listen)
+        def submit_listener(listener: Listener) -> None:
+            listeners.append(listener)
+            future = executor.submit(listener.listen)
 
             future.add_done_callback(self._on_listener_done)
             listener_futures.append(future)
 
-        with ThreadPoolExecutor(max_workers=20) as executor:
+        with (
+            ThreadPoolExecutor(max_workers=20) as executor,
+            _stop_listeners_on_signal(listeners),
+        ):
             extractor_output_queue = self.queues[0]
 
             submit_listener(
@@ -77,7 +107,7 @@ class PipeLine(BaseModel):
                     ),
                     max_retries=0,
                     should_start_health_server=False,
-                ).listen
+                )
             )
 
             last_queue = extractor_output_queue
@@ -97,7 +127,7 @@ class PipeLine(BaseModel):
                         should_start_health_server=False,
                         store=self.store_output,
                         force_run_transformer=self.force_run_transformer,
-                    ).listen
+                    )
                 )
 
                 submit_listener(
@@ -112,7 +142,7 @@ class PipeLine(BaseModel):
                         max_retries=0,
                         should_start_health_server=False,
                         cache_loader=t,
-                    ).listen
+                    )
                 )
 
             if self.store is not None:
@@ -123,7 +153,7 @@ class PipeLine(BaseModel):
                         store=self.store,
                         max_retries=0,
                         should_start_health_server=False,
-                    ).listen
+                    )
                 )
 
             extraction_error: Exception | None = None

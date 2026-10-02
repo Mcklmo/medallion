@@ -47,6 +47,10 @@ def _start_health_server(logger) -> HTTPServer:
     return server
 
 
+class StopRequested(Exception):
+    """A shutdown woke a thread that was waiting to run its message."""
+
+
 class Listener(
     BaseModel,
     ABC,
@@ -72,17 +76,17 @@ class Listener(
     )
     _fatal_error: BaseException | None = PrivateAttr(default=None)
     _fatal_error_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
+    _stopping: threading.Event = PrivateAttr(default_factory=threading.Event)
 
     def request_shutdown(self) -> None:
         self.shutdown = True
+        self._stopping.set()
         self.logger.info("Shutdown requested")
         self.messages_in.close()
 
     def listen(self) -> None:
         def handle_signal(signum, frame):
-            self.shutdown = True
-            self.logger.info("Shutdown requested")
-            self.messages_in.close()
+            self.request_shutdown()
 
         def handle_dump_signal(signum, frame):
             self.logger.info("Dumping all thread stacks")
@@ -221,6 +225,8 @@ class Listener(
                 message.args,
             )
             queue.ack(message)
+        except StopRequested:
+            self._nack_safely(queue, message)
         except Exception as e:
             assert message.delivery_attempt is not None, (
                 "Message.delivery_attempt is None — the subscription is missing a "
