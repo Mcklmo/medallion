@@ -128,7 +128,7 @@ class Listener(
 
                         break
 
-                    self.logger.info(
+                    self.logger.debug(
                         f"{listener_name} Received message of size[{naturalsize(len(message.data))}] with args[{message.args}]"
                     )
 

@@ -392,17 +392,14 @@ class TransformerListener(Listener):
             input_data,
             transformer.version,
         )
-        is_cached = not self.force_run_transformer and bool(
-            transformer.check_cache(self.store, input_data)
+        cached = (
+            None
+            if self.force_run_transformer
+            else transformer.check_cache(self.store, input_data)
         )
 
-        if is_cached:
-            output_data = transformer.load_cache_or_run(
-                self.store,
-                self.force_run_transformer,
-                transformer.name,
-                input_data,
-            )
+        if cached:
+            output_data = transformer.load_from_cache(self.store, cached)
         elif self._batcher is None:
             assert self._pacer is not None
             output_data = self._pacer.call(lambda: transformer.run(input_data))
@@ -426,7 +423,7 @@ class TransformerListener(Listener):
 
             return
 
-        if not is_cached:
+        if not cached:
             # Written here in one piece, not per part by the StorageListener, which would store
             # the parts in arrival order and drop duplicates.
             self.store.upload_file(

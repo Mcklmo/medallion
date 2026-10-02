@@ -180,12 +180,15 @@ class Writer[Out](ABC):
             if force_run:
                 self.logger.info("Skipping cache and forcing a run.")
             else:
-                self.logger.info("Cache miss")
+                self.logger.debug("Cache miss")
 
             return self.run(previous_step_output)
 
+        return self.load_from_cache(store, previous_run_filename)
+
+    def load_from_cache(self, store: BlobStore, previous_run_filename: str) -> Iterable[Out] | Out:
         files_at_path = store.list_files_at(previous_run_filename)
-        self.logger.info(
+        self.logger.debug(
             f"Cache hit, loading output from: {previous_run_filename}, with {len(files_at_path)} files",
         )
 

@@ -31,7 +31,7 @@ class LocalStorage(BlobStore):
         with open(dest_path, "wb") as dst:
             dst.write(content.getvalue())
 
-        self.logger.info(f"Uploaded file to {dest_path}")
+        self.logger.debug(f"Uploaded file to {dest_path}")
 
     def download_file(self, path: str) -> BytesIO:
         full_path = os.path.join(self.output_dir, path)

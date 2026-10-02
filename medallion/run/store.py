@@ -137,7 +137,7 @@ class StorageListener(Listener):
         message_args: dict[str, Any] | None = None,
     ) -> None:
 
-        self.logger.info(
+        self.logger.debug(
             f"Storing message for {previous_steps} at {start_time} with item index {item_index} (thread: {threading.current_thread().name})"
         )
 

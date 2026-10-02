@@ -138,10 +138,10 @@ class BaseStreamingTransformer[
             )
 
         if store.file_exists(filename):
-            self.logger.info(f"Cache hit:  {filename}")
+            self.logger.debug(f"Cache hit:  {filename}")
             return filename
 
-        self.logger.info(f"Cache miss: {filename}")
+        self.logger.debug(f"Cache miss: {filename}")
 
         return None
 
@@ -187,10 +187,10 @@ class BaseGatherTransformer[
         filename = DataModel.cache_list(self.name, previous_step_output, self.version)
 
         if store.file_exists(filename):
-            self.logger.info(f"Cache hit:  {filename}")
+            self.logger.debug(f"Cache hit:  {filename}")
             return filename
 
-        self.logger.info(f"Cache miss: {filename}")
+        self.logger.debug(f"Cache miss: {filename}")
 
         return None
 
