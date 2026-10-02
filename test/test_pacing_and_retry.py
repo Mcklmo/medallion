@@ -7,13 +7,13 @@ from typing import Iterable
 
 import pytest
 
-from medallion import RetryLater
+from medallion import RateLimited, RetryLater
 from medallion.model.base import BasePydanticProcessingStep, DataModel, PydanticReader
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import BasePydanticStreamingTransformer
 from medallion.pipeline import PipeLine
 from medallion.queue.mock import MockQueue
-from medallion.run.transformer import TransformerListener
+from medallion.run.transformer import TransformerListener, _Pacer
 from medallion.store.local import LocalStorage
 
 _LOGGER = logging.getLogger("test-pacing-and-retry")
@@ -151,6 +151,62 @@ def test_ctrl_c_during_a_pause_stops_within_seconds(tmp_path, monkeypatch):
         _run(tmp_path, monkeypatch, step, 20)
 
     assert time.monotonic() - started < 2
+
+
+class RateLimitedOnce(Recorder):
+    min_interval = 0.02
+
+    def work(self, data, attempt):
+        if data.id == 0 and attempt == 1:
+            raise RateLimited("429")
+
+
+def test_a_rate_limited_message_is_requeued_without_a_pause(tmp_path, monkeypatch):
+    step = RateLimitedOnce(_LOGGER)
+    started = time.monotonic()
+    _run(tmp_path, monkeypatch, step, 10)
+
+    assert len(step.starts) == 10 + 1
+    assert [i for _, i in step.starts].count(0) == 2
+    # a RetryLater would back off 5 s
+    assert time.monotonic() - started < 2
+
+
+class TwoInARow(Recorder):
+    max_consecutive_rate_limited = 2
+
+
+def test_a_success_resets_the_rate_limited_count():
+    pacer = _Pacer(TwoInARow(_LOGGER), threading.Event(), _LOGGER)
+
+    def rate_limited():
+        raise RateLimited("429")
+
+    for _ in range(3):
+        with pytest.raises(RateLimited):
+            pacer.call(rate_limited)
+
+        pacer.call(lambda: None)
+
+    with pytest.raises(RateLimited):
+        pacer.call(rate_limited)
+
+    with pytest.raises(RuntimeError, match="rate limited 2 times in a row"):
+        pacer.call(rate_limited)
+
+
+class AlwaysRateLimited(Recorder):
+    def work(self, data, attempt):
+        raise RateLimited("429")
+
+
+def test_rate_limited_in_a_row_stops_the_run(tmp_path, monkeypatch):
+    step = AlwaysRateLimited(_LOGGER)
+
+    with pytest.raises(RuntimeError, match="rate limited 3 times in a row: 429"):
+        _run(tmp_path, monkeypatch, step, 1)
+
+    assert len(step.starts) == 3
 
 
 class OneAtATime(Recorder):

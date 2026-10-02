@@ -5,6 +5,7 @@ from medallion.model.extractor import (
     ARG_PREVIOUS_STEPS,
     ARG_STORE_CACHE_AT_FOLDER,
 )
+from medallion.model.transformer import RateLimited
 from medallion.queue.base import Message, Queue
 
 
@@ -225,7 +226,7 @@ class Listener(
                 message.args,
             )
             queue.ack(message)
-        except StopRequested:
+        except (StopRequested, RateLimited):
             self._nack_safely(queue, message)
         except Exception as e:
             assert message.delivery_attempt is not None, (
@@ -237,6 +238,9 @@ class Listener(
                 if not self.dlq:
                     # Release the message before halting so in-memory queues
                     # can drain and the broker can redeliver after restart.
+                    # Shut down first, or an in-memory queue hands the message
+                    # straight back to a free thread.
+                    self.request_shutdown()
                     self._nack_safely(queue, message)
 
                     raise e

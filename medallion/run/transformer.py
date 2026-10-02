@@ -22,6 +22,7 @@ from medallion.model.transformer import (
     BaseGatherTransformer,
     BaseStreamingTransformer,
     BaseTransformer,
+    RateLimited,
     RetryLater,
 )
 from medallion.run.listener import (
@@ -134,7 +135,8 @@ class _Batcher:
 
 
 class _Pacer:
-    """Spaces a step's uncached calls `min_interval` apart and pauses all of them on `RetryLater`."""
+    """Spaces a step's uncached calls `min_interval` apart, pauses all of them on `RetryLater`
+    and stops the run after `max_consecutive_rate_limited` `RateLimited`s in a row."""
 
     def __init__(
         self,
@@ -151,6 +153,8 @@ class _Pacer:
         self._backoff = 5.0
         self._calls = 0
         self._retries = 0
+        self._rate_limited = 0
+        self._rate_limited_in_a_row = 0
         self._logged_at = time.monotonic()
 
     def call[T](self, run: Callable[[], T]) -> T:
@@ -166,9 +170,14 @@ class _Pacer:
                 self._pause(e, retries)
 
                 continue
+            except RateLimited as e:
+                self._count_rate_limited(e)
+
+                raise
 
             with self._lock:
                 self._backoff = 5.0
+                self._rate_limited_in_a_row = 0
 
             return result
 
@@ -190,12 +199,30 @@ class _Pacer:
                     if now - self._logged_at >= 60:
                         self._logged_at = now
                         self._logger.info(
-                            f"{step.name}: {self._calls} calls, {self._retries} retries, interval {step.min_interval}s"
+                            f"{step.name}: {self._calls} calls, {self._retries} retries, {self._rate_limited} rate limited, interval {step.min_interval}s"
                         )
 
                     return
 
             self._stopping.wait(start - now)
+
+    def _count_rate_limited(self, e: RateLimited) -> None:
+        step = self._step
+        cap = step.max_consecutive_rate_limited
+
+        with self._lock:
+            self._rate_limited += 1
+            self._rate_limited_in_a_row += 1
+            in_a_row = self._rate_limited_in_a_row
+
+        if in_a_row >= cap:
+            raise RuntimeError(
+                f"{step.name} rate limited {in_a_row} times in a row: {e.reason}"
+            ) from e
+
+        self._logger.warning(
+            f"{step.name} rate limited: {e.reason}; message requeued ({in_a_row}/{cap} in a row)"
+        )
 
     def _pause(self, e: RetryLater, retries: int) -> None:
         step = self._step

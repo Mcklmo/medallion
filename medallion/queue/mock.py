@@ -16,8 +16,8 @@ class MockQueue[T](Queue):
         ] = (),
         block_when_empty: bool = True,
     ):
-        self._initial: list[tuple[bytes, dict[str, Any], str]] = [
-            (data, args, "") for data, args in messages
+        self._initial: list[tuple[bytes, dict[str, Any], str, int]] = [
+            (data, args, "", 1) for data, args in messages
         ]
         self._subscribers: list[queue.Queue] = []
         self._lock = threading.Lock()
@@ -45,15 +45,16 @@ class MockQueue[T](Queue):
                     entry = (
                         inbox.get(timeout=0.1) if self._block else inbox.get_nowait()
                     )
-                    data, args, _ordering_key = entry
+                    data, args, _ordering_key, attempt = entry
                     yield Message(
                         data=data,
                         args=args,
                         raw_message=inbox,
-                        delivery_attempt=1,
+                        delivery_attempt=attempt,
                     )
                 except queue.Empty:
-                    if self._closed or not self._block:
+                    # a message still in flight may be nacked back into the inbox
+                    if not self._block or (self._closed and inbox.unfinished_tasks == 0):
                         return
         finally:
             with self._lock:
@@ -77,6 +78,7 @@ class MockQueue[T](Queue):
 
     def nack(self, message) -> None:
         inbox: queue.Queue = message.raw_message
+        inbox.put((message.data, message.args, "", message.delivery_attempt + 1))
         inbox.task_done()
 
     def close(self) -> None:
@@ -106,4 +108,4 @@ class MockQueue[T](Queue):
             inboxes = list(self._subscribers)
 
         for inbox in inboxes:
-            inbox.put((data, args, ordering_key))
+            inbox.put((data, args, ordering_key, 1))
