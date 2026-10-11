@@ -168,6 +168,7 @@ def build_extractor_service(
     svc: dict[str, Any] = {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['extractor']}",
+        "tty": True,  # tqdm draws its progress bar only on a terminal
         "environment": env,
         "ports": [f"{host_port}:{EXTRACTOR_INTERNAL_PORT}"],
         "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
@@ -200,6 +201,7 @@ def build_transformer_service(
     return {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['transformer']}",
+        "tty": True,  # tqdm draws its progress bar only on a terminal
         "environment": env,
         "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
     }
@@ -217,6 +219,7 @@ def build_store_service(graph: PipelineGraph, repo: str, st: Store) -> dict[str,
     return {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['store']}",
+        "tty": True,  # tqdm draws its progress bar only on a terminal
         "environment": env,
         "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
         "volumes": ["./.medallion-data:/app/data"],  # local sink persistence
