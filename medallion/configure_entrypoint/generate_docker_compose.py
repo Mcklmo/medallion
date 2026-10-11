@@ -150,6 +150,10 @@ def runtime_to_env(rt: EffectiveRuntime) -> dict[str, Any]:
     }
 
 
+# medallion writes its log files under the container's WORKDIR
+LOG_VOLUME = "./output/logs:/app/output/logs"
+
+
 def build_extractor_service(
     graph: PipelineGraph,
     repo: str,
@@ -168,11 +172,13 @@ def build_extractor_service(
     svc: dict[str, Any] = {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['extractor']}",
+        "tty": True,  # tqdm draws its progress bar only on a terminal
         "environment": env,
         "ports": [f"{host_port}:{EXTRACTOR_INTERNAL_PORT}"],
         "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
         "volumes": [
-            "./.medallion-data:/app/data"
+            "./.medallion-data:/app/data",
+            LOG_VOLUME,
         ],  # the extractor needs the local sink to check for previous runs "cache"
     }
 
@@ -200,8 +206,10 @@ def build_transformer_service(
     return {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['transformer']}",
+        "tty": True,  # tqdm draws its progress bar only on a terminal
         "environment": env,
         "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
+        "volumes": [LOG_VOLUME],
     }
 
 
@@ -217,9 +225,10 @@ def build_store_service(graph: PipelineGraph, repo: str, st: Store) -> dict[str,
     return {
         "build": BUILD_CONTEXT,
         "command": f"python -m {RUN_MODULE['store']}",
+        "tty": True,  # tqdm draws its progress bar only on a terminal
         "environment": env,
         "depends_on": {"bootstrap": {"condition": "service_completed_successfully"}},
-        "volumes": ["./.medallion-data:/app/data"],  # local sink persistence
+        "volumes": ["./.medallion-data:/app/data", LOG_VOLUME],  # local sink persistence
     }
 
 
