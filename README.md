@@ -218,6 +218,19 @@ lnav output/logs
 
 Show one processor's lines with `:filter-expr :processor = 'transform-csv-to-model'`.
 
+### Progress
+
+`MEDALLION_SHOW_PROGRESS=true` (default `false`) counts each processor's handled messages (items for an extractor), cache hits and dead-lettered messages. A rate-limited message that is requeued is not counted.
+
+- On a terminal: one bar per processor, log lines print above the bars.
+  ```
+  csv-to-model: 1180it [00:41, 28.7it/s, cached=120 failed=2]
+  ```
+- Without a terminal: every 60 s, one INFO line per processor, with `handled`, `cached`, `failed` and `per_second` as JSON fields.
+  ```
+  csv-to-model: 1,180 handled (cached=120 failed=2), 28.7/s
+  ```
+
 ### Create debugging configurations for VS Code
 
 Medallion creates debugging configurations for your scraper pipelines, which you can run in the VS Code debugger. The `start` command already creates working configurations for the example extractor and transformer, so you can start debugging right away. Re-run the command after making changes to your `config.yml` file to update the debugging configurations with your new pipelines.

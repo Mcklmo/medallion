@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 
 from medallion.log import PROCESSOR_NAME_ENV_VAR, create_logger, start_process_log
+from medallion.progress import Progress, show_progress
 from medallion.model.extractor import (
     ARG_PREVIOUS_STEPS,
     ORDERING_KEY_SEPARATOR,
@@ -40,13 +41,10 @@ async def lifespan(app: FastAPI):
     app.state.api_key_value = must_get_env(API_KEY_ENV)
     # Load config, init publisher client once
     logger = create_logger()
-    start_process_log(
-        [
-            get_env_or_default(
-                PROCESSOR_NAME_ENV_VAR, must_get_env(EXTRACTOR_CLASS_ENV_VAR)
-            )
-        ]
+    processor = get_env_or_default(
+        PROCESSOR_NAME_ENV_VAR, must_get_env(EXTRACTOR_CLASS_ENV_VAR)
     )
+    start_process_log([processor])
     app.state.extractor = load_extractor_from_env(logger)
     app.state.queue_producer = initialize_queue()
     app.state.logger = logger
@@ -54,7 +52,9 @@ async def lifespan(app: FastAPI):
         logger=logger,
     )
 
-    yield
+    with show_progress([processor], logger) as (progress,):
+        app.state.progress = progress
+        yield
 
 
 def initialize_queue() -> Queue:
@@ -84,6 +84,7 @@ def extract_and_stream(
     extractor: BaseExtractor,
     queue_writer: QueueWriter,
     store: BlobStore,
+    progress: Progress | None = None,
 ) -> Callable[
     [],
     None,
@@ -109,6 +110,9 @@ def extract_and_stream(
                     )
 
                     futures.append(future)
+
+                    if progress is not None:
+                        progress.count()
 
             try:
                 extractor.stream_output(
@@ -148,6 +152,7 @@ async def trigger(request: Request, background: BackgroundTasks):
             app.state.extractor,
             app.state.queue_producer,
             app.state.store,
+            app.state.progress,
         )
     )
 

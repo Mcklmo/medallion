@@ -2,6 +2,7 @@ from io import BytesIO
 import json
 import threading
 from medallion.log import PROCESSOR_NAME_ENV_VAR, create_logger, start_process_log
+from medallion.progress import show_progress
 from medallion.queue.pubsub import PubSubQueue
 from medallion.model.store import BaseStore
 from medallion.run.extractor import GOOGLE_CLOUD_PROJECT_ENV_VAR
@@ -159,29 +160,32 @@ class StorageListener(Listener):
 
 if __name__ == "__main__":
     logger = create_logger()
-    start_process_log(
-        [get_env_or_default(PROCESSOR_NAME_ENV_VAR, PydanticFlatFileStore.__name__)]
+    processor = get_env_or_default(
+        PROCESSOR_NAME_ENV_VAR, PydanticFlatFileStore.__name__
     )
+    start_process_log([processor])
     project_id = must_get_env(GOOGLE_CLOUD_PROJECT_ENV_VAR)
     store = initialize_storage(
         logger,
     )
-    listener = StorageListener(
-        store=PydanticFlatFileStore(
-            store=store,
+    with show_progress([processor], logger) as (progress,):
+        listener = StorageListener(
+            store=PydanticFlatFileStore(
+                store=store,
+                logger=logger,
+            ),
+            messages_in=PubSubQueue(
+                project_id=project_id,
+                subscription_id=must_get_env("MEDALLION_SUBSCRIPTION"),
+                logger=logger,
+            ),
+            dlq=PubSubQueue(
+                project_id=project_id,
+                topic_id=must_get_env("MEDALLION_DLQ_TOPIC"),
+                logger=logger,
+            ),
+            max_retries=int(must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)),
             logger=logger,
-        ),
-        messages_in=PubSubQueue(
-            project_id=project_id,
-            subscription_id=must_get_env("MEDALLION_SUBSCRIPTION"),
-            logger=logger,
-        ),
-        dlq=PubSubQueue(
-            project_id=project_id,
-            topic_id=must_get_env("MEDALLION_DLQ_TOPIC"),
-            logger=logger,
-        ),
-        max_retries=int(must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)),
-        logger=logger,
-    )
-    listener.listen()
+            progress=progress,
+        )
+        listener.listen()

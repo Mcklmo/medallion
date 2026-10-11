@@ -7,6 +7,7 @@ from medallion.model.extractor import (
 )
 from medallion.log import set_thread_processor
 from medallion.model.transformer import RateLimited
+from medallion.progress import Progress
 from medallion.queue.base import Message, Queue
 
 
@@ -65,6 +66,7 @@ class Listener(
     logger: Logger
     dlq: Queue | None = None
     processor: str | None = None  # None: the process's processor
+    progress: Progress | None = None
     max_concurrent_messages: int = 8
     message_executor: ThreadPoolExecutor | None = Field(
         init=False,
@@ -220,7 +222,7 @@ class Listener(
                 start_time and previous_steps
             ), f"message[{message.args}] incomplete. Missing required message args: {ARG_EXECUTION_START_TIME} or {ARG_PREVIOUS_STEPS}"
 
-            self.process_message(
+            cached = self.process_message(
                 message.data,
                 is_chunk_end,
                 start_time,
@@ -230,6 +232,9 @@ class Listener(
                 message.args,
             )
             queue.ack(message)
+
+            if self.progress is not None:
+                self.progress.count(cached=bool(cached))
         except (StopRequested, RateLimited):
             self._nack_safely(queue, message)
         except Exception as e:
@@ -263,6 +268,10 @@ class Listener(
                     ordering_key=str(message.delivery_attempt),
                 )
                 queue.ack(message)
+
+                if self.progress is not None:
+                    self.progress.count(failed=True)
+
                 return
 
             self.logger.exception(
@@ -295,8 +304,8 @@ class Listener(
         item_index: int,
         store_cache_at_folder: str | None = None,
         message_args: dict[str, Any] | None = None,
-    ) -> None:
-        pass
+    ) -> bool | None:
+        """Returns True when the output came from the cache."""
 
     def model_post_init(self, __context) -> None:
         # executor threads don't inherit the listener thread's processor
