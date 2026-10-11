@@ -179,7 +179,7 @@ class FetchEntry(BasePydanticStreamingTransformer[Word, Entry], PydanticReader[W
 
 ### Logs
 
-Every log line is one JSON object with `time`, `severity`, `message`, `processor` (the processor's name in `config.yml`), `logger`, `module`, `function`, `line` and any `extra=` keys. Each process also writes its lines to `<MEDALLION_LOG_DIR>/YYYY/MM/DD/HH/<start>-<processor>.jsonl`; a local pipeline run writes one file named after all its processors.
+Every log line is one JSON object with `time`, `severity`, `message`, `processor` (the processor's name in `config.yml`), `logger`, `module`, `function`, `line` and any `extra=` keys. Each process also writes its lines to `<MEDALLION_LOG_DIR>/YYYY/MM/DD/HH/<start>-<processor>-<hash>.jsonl`; a local pipeline run writes one file named after all its processors. `<hash>` is a short hash of the full processor chain, so a name shortened with `-and-<n>-more` still tells chains apart.
 
 | Variable | Default | |
 | --- | --- | --- |

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import sys
@@ -130,10 +131,13 @@ def _console_formatter() -> logging.Formatter:
 
 
 def log_file_name(start: str, processors: list[str]) -> str:
+    # names may contain "-", so the hash input joins them unambiguously
+    chain = hashlib.sha256("\n".join(processors).encode()).hexdigest()[:8]
+
     for kept in range(len(processors), 0, -1):
         dropped = len(processors) - kept
         more = f"-and-{dropped}-more" if dropped else ""
-        name = "-".join([start, *processors[:kept]]) + more + ".jsonl"
+        name = "-".join([start, *processors[:kept]]) + f"{more}-{chain}.jsonl"
 
         if len(name.encode()) <= MAX_FILE_NAME_BYTES:
             return name

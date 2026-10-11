@@ -77,11 +77,18 @@ def test_unserialisable_extra_is_written_as_text():
 
 
 def test_file_name_joins_processors_in_run_order():
-    assert log_file_name(START, ["extract-a"]) == f"{START}-extract-a.jsonl"
-    assert (
-        log_file_name(START, ["extract-a", "transform-b", "store-c"])
-        == f"{START}-extract-a-transform-b-store-c.jsonl"
+    assert re.fullmatch(
+        rf"{START}-extract-a-[0-9a-f]{{8}}\.jsonl", log_file_name(START, ["extract-a"])
     )
+    assert re.fullmatch(
+        rf"{START}-extract-a-transform-b-store-c-[0-9a-f]{{8}}\.jsonl",
+        log_file_name(START, ["extract-a", "transform-b", "store-c"]),
+    )
+
+
+def test_file_name_hash_tells_chains_apart():
+    assert log_file_name(START, ["a-b", "c"]) != log_file_name(START, ["a", "b-c"])
+    assert log_file_name(START, ["a", "b"]) == log_file_name(START, ["a", "b"])
 
 
 def test_file_name_drops_whole_names_past_255_bytes():
@@ -90,7 +97,9 @@ def test_file_name_drops_whole_names_past_255_bytes():
     name = log_file_name(START, names)
 
     assert len(name.encode()) <= 255
-    assert name == f"{START}-{'-'.join(names[:5])}-and-2-more.jsonl"
+    assert re.fullmatch(
+        rf"{START}-{'-'.join(names[:4])}-and-3-more-[0-9a-f]{{8}}\.jsonl", name
+    )
 
 
 def test_file_name_fails_when_even_the_extractor_does_not_fit():
@@ -142,7 +151,7 @@ def test_local_pipeline_run_writes_one_file_naming_each_processor(
     files = list((tmp_path / "logs").rglob("*.jsonl"))
     assert len(files) == 1
     assert re.fullmatch(
-        r"\d{4}/\d\d/\d\d/\d\d/[\dT-]+-extract-items-transform-double\.jsonl",
+        r"\d{4}/\d\d/\d\d/\d\d/[\dT-]+-extract-items-transform-double-[0-9a-f]{8}\.jsonl",
         files[0].relative_to(tmp_path / "logs").as_posix(),
     )
 
