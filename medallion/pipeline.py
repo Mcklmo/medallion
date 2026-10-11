@@ -6,6 +6,7 @@ from logging import Logger
 from typing import Any, Optional
 from medallion.log import set_thread_processor
 from medallion.model.transformer import BaseTransformer
+from medallion.progress import show_progress
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import (
     TRANSFORMER_TYPES,
@@ -94,6 +95,7 @@ class PipeLine(BaseModel):
             listener_futures.append(future)
 
         with (
+            show_progress(self.processor_names, self.logger) as progress,
             ThreadPoolExecutor(max_workers=20) as executor,
             _stop_listeners_on_signal(listeners),
         ):
@@ -129,6 +131,7 @@ class PipeLine(BaseModel):
                         messages_in=queue_in,
                         messages_out=queue_out,
                         processor=transformer_name,
+                        progress=progress[i + 1],
                         logger=self.logger,
                         transformer=t,
                         max_retries=0,
@@ -159,6 +162,7 @@ class PipeLine(BaseModel):
                     StorageListener(
                         messages_in=last_queue,
                         processor=self.processor_names[-1],
+                        progress=progress[-1],
                         logger=self.logger,
                         store=self.store,
                         max_retries=0,
@@ -173,6 +177,7 @@ class PipeLine(BaseModel):
                     extractor=self.extractor,
                     queue_writer=extractor_output_queue,
                     store=self.store_output,
+                    progress=progress[0],
                 )()
             except Exception as e:
                 extraction_error = e

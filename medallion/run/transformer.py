@@ -16,6 +16,7 @@ from medallion.model.extractor import (
     ARG_PART_INDEX,
     ARG_STORE_CACHE_AT_FOLDER,
 )
+from medallion.progress import show_progress
 from medallion.queue.pubsub import PubSubQueue
 from medallion.resolve_classes import (
     TRANSFORMER_CLASS_ENV_VAR,
@@ -326,7 +327,7 @@ class TransformerListener(Listener):
         item_index: int,
         store_cache_at_folder: str | None = None,
         message_args: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> bool | None:
         transformer = self.transformer
 
         if isinstance(transformer, BaseGatherTransformer):
@@ -340,10 +341,10 @@ class TransformerListener(Listener):
                 message_args or {},
             )
 
-            return
+            return None
 
         if isinstance(transformer, BaseStreamingTransformer):
-            self._stream(
+            return self._stream(
                 transformer,
                 data,
                 is_chunk_end,
@@ -353,12 +354,10 @@ class TransformerListener(Listener):
                 message_args or {},
             )
 
-            return
-
         self.messages_hot_store.append(data)
 
         if not is_chunk_end:
-            return
+            return None
 
         input_data = [transformer.read_input_bytes(d) for d in self.messages_hot_store]
 
@@ -384,6 +383,8 @@ class TransformerListener(Listener):
         self._write(transformer.write_output(output_data), args)
         self.messages_hot_store.clear()
 
+        return None
+
     def _stream(
         self,
         transformer: BaseStreamingTransformer,
@@ -393,7 +394,7 @@ class TransformerListener(Listener):
         previous_steps: list[str],
         item_index: int,
         message_args: dict[str, Any],
-    ) -> None:
+    ) -> bool:
         input_data = list(transformer.read_input_bytes(data))
         cache_path = DataModel.cache_list(
             transformer.name,
@@ -429,7 +430,7 @@ class TransformerListener(Listener):
         if not transformer.fan_out:
             self._write(transformer.write_output(items), args)
 
-            return
+            return bool(cached)
 
         if not cached:
             # Written here in one piece, not per part by the StorageListener, which would store
@@ -458,6 +459,8 @@ class TransformerListener(Listener):
                     }
                 ),
             )
+
+        return bool(cached)
 
     def _gather_lock(self, key: str) -> threading.Lock:
         with self._gather_locks_guard:
@@ -533,35 +536,34 @@ class TransformerListener(Listener):
 if __name__ == "__main__":
     project_id = must_get_env(GOOGLE_CLOUD_PROJECT_ENV_VAR)
     logger = create_logger()
-    start_process_log(
-        [
-            get_env_or_default(
-                PROCESSOR_NAME_ENV_VAR, must_get_env(TRANSFORMER_CLASS_ENV_VAR)
-            )
-        ]
+    processor = get_env_or_default(
+        PROCESSOR_NAME_ENV_VAR, must_get_env(TRANSFORMER_CLASS_ENV_VAR)
     )
+    start_process_log([processor])
     transformer = load_transformer_from_env(logger)
     store = initialize_storage(logger)
-    listener = TransformerListener(
-        transformer=transformer,
-        messages_in=PubSubQueue(
-            project_id=project_id,
-            subscription_id=must_get_env("MEDALLION_SUBSCRIPTION"),
-            logger=logger,
-        ),
-        messages_out=PubSubQueue(
-            project_id=project_id,
-            topic_id=must_get_env(MEDALLION_TOPIC_ENV),
-            logger=logger,
-        ),
-        dlq=PubSubQueue(
-            project_id=project_id,
-            topic_id=must_get_env("MEDALLION_DLQ_TOPIC"),
-            logger=logger,
-        ),
-        max_retries=int(must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)),
-        force_run_transformer=is_force_transformer_run_enabled(),
-        logger=create_logger(),
-        store=store,
-    )
-    listener.listen()
+    with show_progress([processor], logger) as (progress,):
+        listener = TransformerListener(
+            transformer=transformer,
+            messages_in=PubSubQueue(
+                project_id=project_id,
+                subscription_id=must_get_env("MEDALLION_SUBSCRIPTION"),
+                logger=logger,
+            ),
+            messages_out=PubSubQueue(
+                project_id=project_id,
+                topic_id=must_get_env(MEDALLION_TOPIC_ENV),
+                logger=logger,
+            ),
+            dlq=PubSubQueue(
+                project_id=project_id,
+                topic_id=must_get_env("MEDALLION_DLQ_TOPIC"),
+                logger=logger,
+            ),
+            max_retries=int(must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)),
+            force_run_transformer=is_force_transformer_run_enabled(),
+            logger=create_logger(),
+            store=store,
+            progress=progress,
+        )
+        listener.listen()
