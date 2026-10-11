@@ -65,7 +65,7 @@ class RetryLater(Exception):
 class RateLimited(Exception):
     """Raised by a streaming step when the source rejected the call for its rate; the message is requeued.
 
-    The step keeps its `min_interval` cadence meanwhile. `max_consecutive_rate_limited` in a row stop the run.
+    The step keeps its `min_interval` cadence meanwhile. `max_consecutive_rate_limited` in a row stop a local run; deployed, the message is dead-lettered.
     """
 
     def __init__(self, reason: str):
@@ -95,9 +95,9 @@ class BaseStreamingTransformer[
     max_retry_wait: ClassVar[float] = 900.0
     """Longest pause after a `RetryLater`, in seconds."""
     max_retries_later: ClassVar[int | None] = 10
-    """Retries of one call after consecutive `RetryLater`s; the next one is a fatal error. None retries forever."""
+    """Retries of one call after consecutive `RetryLater`s; the next one stops a local run; deployed, the message is dead-lettered. None retries forever."""
     max_consecutive_rate_limited: ClassVar[int] = 3
-    """`RateLimited`s in a row across the step, with no success between, that stop the run."""
+    """`RateLimited`s in a row across the step, with no success between, that stop a local run; deployed, the message is dead-lettered."""
 
     def __init__(
         self,

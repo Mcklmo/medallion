@@ -2,7 +2,11 @@
 
 ## Glossary
 
-**RateLimited**: A step's signal that the source rejected a call because of its rate. The message goes back on the queue and the step keeps its cadence. Several in a row stop the run.
+**Pipeline run**: One execution of an extractor and everything downstream that its output causes. A **local pipeline run** happens on a developer's machine; a **deployed pipeline run** is started by a schedule or trigger and spreads across the deployed steps.
+
+_Avoid_: "run" alone when it matters whether it is local or deployed.
+
+**RateLimited**: A streaming step's signal that the source rejected a call because of its rate. The message goes back on the queue and the step keeps its cadence. Several in a row stop a local pipeline run, so the log shows where the source's limit lies. A deployed pipeline run does not stop; a message rate-limited too often goes to the dead-letter queue, which is the alarm.
 
 **RetryLater**: A step's signal that the source is unavailable (an outage). Every thread of the step pauses and polls with growing backoff until a call succeeds.
 

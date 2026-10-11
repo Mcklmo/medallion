@@ -136,7 +136,7 @@ class _Batcher:
 
 class _Pacer:
     """Spaces a step's uncached calls `min_interval` apart, pauses all of them on `RetryLater`
-    and stops the run after `max_consecutive_rate_limited` `RateLimited`s in a row."""
+    and fails the call after `max_consecutive_rate_limited` `RateLimited`s in a row."""
 
     def __init__(
         self,

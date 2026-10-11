@@ -156,8 +156,8 @@ from medallion import RateLimited, RetryLater
 class FetchEntry(BasePydanticStreamingTransformer[Word, Entry], PydanticReader[Word]):
     min_interval = 0.25  # seconds between calls, across all threads of the step
     max_concurrent_messages = 8  # messages handled at once (default 8, at least batch_size)
-    max_consecutive_rate_limited = 3  # RateLimited in a row that stop the run
-    max_retries_later = 10  # consecutive retries of one call; the next RetryLater stops the run
+    max_consecutive_rate_limited = 3  # RateLimited in a row that stop a local run
+    max_retries_later = 10  # consecutive retries of one call; the next RetryLater stops a local run
     max_retry_wait = 900.0  # longest pause, in seconds
 
     def transform_one(self, data: Word) -> Entry:
@@ -169,7 +169,8 @@ class FetchEntry(BasePydanticStreamingTransformer[Word, Entry], PydanticReader[W
         ...
 ```
 
-- `RateLimited(reason)` requeues the message; the step keeps calling every `min_interval`. `max_consecutive_rate_limited` of them in a row, with no success between, stop the run, so the log shows when the source's limit was reached. Run again to resume.
+- `RateLimited(reason)` requeues the message; the step keeps calling every `min_interval`. `max_consecutive_rate_limited` of them in a row, with no success between, stop a local run, so the log shows when the source's limit was reached. Run again to resume.
+- Deployed, nothing stops: a message rate-limited or retried too often goes to the dead-letter queue.
 - `RetryLater(reason, after=None)` is for an outage: it pauses every thread of the step for `after` seconds, or backs off from 5 s (doubling, ±20% jitter, up to `max_retry_wait`) when `after` is None; a success resets the backoff. Retries happen within one Pub/Sub delivery.
 - Each requeue and pause logs a warning; calls, retries and rate-limited calls are logged every 60 s.
 - Cache hits are not paced. With `batch_size`, each `transform_many` call is one paced call.
