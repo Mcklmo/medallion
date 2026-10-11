@@ -177,6 +177,47 @@ class FetchEntry(BasePydanticStreamingTransformer[Word, Entry], PydanticReader[W
 - Pacing is per process: N instances call N times as often.
 - Ctrl-C or SIGTERM ends a pause; its message is left for the next run.
 
+### Logs
+
+Every log line is one JSON object with `time`, `severity`, `message`, `processor` (the processor's name in `config.yml`), `logger`, `module`, `function`, `line` and any `extra=` keys. Each process also writes its lines to `<MEDALLION_LOG_DIR>/YYYY/MM/DD/HH/<start>-<processor>.jsonl`; a local pipeline run writes one file named after all its processors.
+
+| Variable | Default | |
+| --- | --- | --- |
+| `MEDALLION_LOG_FORMAT` | `json` | `json` or `text` (colored, for the console only; files are always JSON) |
+| `MEDALLION_WRITE_LOG_FILES` | `true` | `false` writes no files (deployed services set this) |
+| `MEDALLION_LOG_DIR` | `output/logs` | |
+
+To read the files with [lnav](https://lnav.org), save this as `medallion_log.json`:
+
+```json
+{
+  "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+  "medallion_json": {
+    "title": "medallion JSON log",
+    "file-type": "json",
+    "file-pattern": "\\.jsonl$",
+    "timestamp-field": "time",
+    "level-field": "severity",
+    "body-field": "message",
+    "level": { "critical": "CRITICAL", "error": "ERROR", "warning": "WARNING", "info": "INFO", "debug": "DEBUG" },
+    "value": { "processor": { "kind": "string", "identifier": true } },
+    "line-format": [
+      { "field": "__timestamp__" }, " ",
+      { "field": "severity", "min-width": 7 }, " ",
+      { "field": "processor", "default-value": "-" }, " ",
+      { "field": "message" }
+    ]
+  }
+}
+```
+
+```bash
+lnav -i medallion_log.json  # install once
+lnav output/logs
+```
+
+Show one processor's lines with `:filter-expr :processor = 'transform-csv-to-model'`.
+
 ### Create debugging configurations for VS Code
 
 Medallion creates debugging configurations for your scraper pipelines, which you can run in the VS Code debugger. The `start` command already creates working configurations for the example extractor and transformer, so you can start debugging right away. Re-run the command after making changes to your `config.yml` file to update the debugging configurations with your new pipelines.

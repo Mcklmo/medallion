@@ -5,7 +5,7 @@ from concurrent.futures import Future
 from io import BytesIO
 from logging import Logger
 from typing import Any, Callable, cast
-from medallion.log import create_logger
+from medallion.log import PROCESSOR_NAME_ENV_VAR, create_logger, start_process_log
 from medallion.model.base import DataModel
 from medallion.model.extractor import (
     ARG_EXECUTION_START_TIME,
@@ -17,7 +17,10 @@ from medallion.model.extractor import (
     ARG_STORE_CACHE_AT_FOLDER,
 )
 from medallion.queue.pubsub import PubSubQueue
-from medallion.resolve_classes import load_transformer_from_env
+from medallion.resolve_classes import (
+    TRANSFORMER_CLASS_ENV_VAR,
+    load_transformer_from_env,
+)
 from medallion.model.transformer import (
     BaseGatherTransformer,
     BaseStreamingTransformer,
@@ -35,7 +38,12 @@ from medallion.run.extractor import (
     GOOGLE_CLOUD_PROJECT_ENV_VAR,
     ordering_key_from_steps,
 )
-from medallion.store.base import BlobStore, must_get_env, MEDALLION_TOPIC_ENV
+from medallion.store.base import (
+    BlobStore,
+    get_env_or_default,
+    must_get_env,
+    MEDALLION_TOPIC_ENV,
+)
 from medallion.queue.base import Queue
 from pydantic import BaseModel, Field, PrivateAttr
 
@@ -525,6 +533,13 @@ class TransformerListener(Listener):
 if __name__ == "__main__":
     project_id = must_get_env(GOOGLE_CLOUD_PROJECT_ENV_VAR)
     logger = create_logger()
+    start_process_log(
+        [
+            get_env_or_default(
+                PROCESSOR_NAME_ENV_VAR, must_get_env(TRANSFORMER_CLASS_ENV_VAR)
+            )
+        ]
+    )
     transformer = load_transformer_from_env(logger)
     store = initialize_storage(logger)
     listener = TransformerListener(

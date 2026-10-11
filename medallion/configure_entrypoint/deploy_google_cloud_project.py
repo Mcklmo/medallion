@@ -64,7 +64,11 @@ from medallion.configure_entrypoint.resource_names import (
     topic_name,
     transformer_subscription_name,
 )
-from medallion.log import create_logger
+from medallion.log import (
+    PROCESSOR_NAME_ENV_VAR,
+    WRITE_LOG_FILES_ENV_VAR,
+    create_logger,
+)
 from medallion.model.extractor import FORCE_RUN_EXTRACTOR_ENV_VAR
 from medallion.run.extractor import (
     API_KEY_ENV,
@@ -249,7 +253,9 @@ def deploy_service(
 
     env = [
         run_v2.EnvVar(name="MEDALLION_REPO", value=graph.repo.name),
-        run_v2.EnvVar(name="PROCESSOR_NAME", value=processor.name),
+        run_v2.EnvVar(name=PROCESSOR_NAME_ENV_VAR, value=processor.name),
+        # Cloud Logging reads stdout; files would be lost with the instance
+        run_v2.EnvVar(name=WRITE_LOG_FILES_ENV_VAR, value="false"),
         run_v2.EnvVar(name="PROCESSOR_KIND", value=kind),
         run_v2.EnvVar(name=GOOGLE_CLOUD_PROJECT_ENV_VAR, value=clients.project),
         run_v2.EnvVar(

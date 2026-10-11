@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from concurrent.futures import Future, ThreadPoolExecutor
 from logging import Logger
 from typing import Any, Optional
+from medallion.log import set_thread_processor
 from medallion.model.transformer import BaseTransformer
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import (
@@ -62,6 +63,8 @@ class PipeLine(BaseModel):
     store_output: BlobStore
     force_run_transformer: bool
     store: BaseStore | None = None
+    # in run order: extractor, transformers, store; defaults to their class names
+    processor_names: list[str] = Field(default_factory=list)
     _listener_error: BaseException | None = PrivateAttr(default=None)
     _listener_error_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
@@ -95,10 +98,13 @@ class PipeLine(BaseModel):
             _stop_listeners_on_signal(listeners),
         ):
             extractor_output_queue = self.queues[0]
+            extractor_name = self.processor_names[0]
 
+            # an output's store listener logs as the processor that produced it
             submit_listener(
                 StorageListener(
                     messages_in=extractor_output_queue,
+                    processor=extractor_name,
                     logger=self.logger,
                     store=PydanticFlatFileStore(
                         store=self.store_output,
@@ -116,11 +122,13 @@ class PipeLine(BaseModel):
                 queue_in = self.queues[i]
                 queue_out = self.queues[i + 1]
                 last_queue = queue_out
+                transformer_name = self.processor_names[i + 1]
 
                 submit_listener(
                     TransformerListener(
                         messages_in=queue_in,
                         messages_out=queue_out,
+                        processor=transformer_name,
                         logger=self.logger,
                         transformer=t,
                         max_retries=0,
@@ -133,6 +141,7 @@ class PipeLine(BaseModel):
                 submit_listener(
                     StorageListener(
                         messages_in=queue_out,
+                        processor=transformer_name,
                         logger=self.logger,
                         store=PydanticFlatFileStore(
                             store=self.store_output,
@@ -149,6 +158,7 @@ class PipeLine(BaseModel):
                 submit_listener(
                     StorageListener(
                         messages_in=last_queue,
+                        processor=self.processor_names[-1],
                         logger=self.logger,
                         store=self.store,
                         max_retries=0,
@@ -157,6 +167,7 @@ class PipeLine(BaseModel):
                 )
 
             extraction_error: Exception | None = None
+            set_thread_processor(extractor_name)
             try:
                 extract_and_stream(
                     extractor=self.extractor,
@@ -166,6 +177,7 @@ class PipeLine(BaseModel):
             except Exception as e:
                 extraction_error = e
             finally:
+                set_thread_processor(None)
                 # Close every queue so all listener loops terminate, even if
                 # extraction failed partway through. Without this, run()'s
                 # ThreadPoolExecutor.__exit__ -> shutdown(wait=True) would
@@ -186,6 +198,17 @@ class PipeLine(BaseModel):
             raise extraction_error
 
     def model_post_init(self, context: Any) -> None:
+        processors = [self.extractor, *(self.transformers or [])]
+        if self.store is not None:
+            processors.append(self.store)
+
+        if not self.processor_names:
+            self.processor_names = [type(p).__name__ for p in processors]
+
+        assert len(self.processor_names) == len(
+            processors
+        ), f"Expected {len(processors)} processor names, got {self.processor_names}"
+
         transformer_count = len(self.transformers or [])
         storage_queue_count = 1 if self.store is not None else 0
         expected_queue_count = transformer_count + 1 + storage_queue_count

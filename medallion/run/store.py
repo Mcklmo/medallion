@@ -1,7 +1,7 @@
 from io import BytesIO
 import json
 import threading
-from medallion.log import create_logger
+from medallion.log import PROCESSOR_NAME_ENV_VAR, create_logger, start_process_log
 from medallion.queue.pubsub import PubSubQueue
 from medallion.model.store import BaseStore
 from medallion.run.extractor import GOOGLE_CLOUD_PROJECT_ENV_VAR
@@ -9,6 +9,7 @@ from medallion.run.listener import LISTENER_MAX_RETRIES_ENV_VAR, Listener
 from medallion.store.base import (
     BlobStore,
     build_timestamp_path_segments,
+    get_env_or_default,
     must_get_env,
 )
 from medallion.model.base import DataModel, PydanticReader, Writer
@@ -158,6 +159,9 @@ class StorageListener(Listener):
 
 if __name__ == "__main__":
     logger = create_logger()
+    start_process_log(
+        [get_env_or_default(PROCESSOR_NAME_ENV_VAR, PydanticFlatFileStore.__name__)]
+    )
     project_id = must_get_env(GOOGLE_CLOUD_PROJECT_ENV_VAR)
     store = initialize_storage(
         logger,

@@ -11,3 +11,4 @@ build/
 medallion-test-628d97bbe221.json
 .medallion-data/*
 docker-compose.debug.yml
+output/

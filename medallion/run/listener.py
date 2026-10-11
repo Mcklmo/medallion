@@ -5,6 +5,7 @@ from medallion.model.extractor import (
     ARG_PREVIOUS_STEPS,
     ARG_STORE_CACHE_AT_FOLDER,
 )
+from medallion.log import set_thread_processor
 from medallion.model.transformer import RateLimited
 from medallion.queue.base import Message, Queue
 
@@ -63,6 +64,7 @@ class Listener(
     max_retries: int
     logger: Logger
     dlq: Queue | None = None
+    processor: str | None = None  # None: the process's processor
     max_concurrent_messages: int = 8
     message_executor: ThreadPoolExecutor | None = Field(
         init=False,
@@ -86,6 +88,8 @@ class Listener(
         self.messages_in.close()
 
     def listen(self) -> None:
+        set_thread_processor(self.processor)
+
         def handle_signal(signum, frame):
             self.request_shutdown()
 
@@ -295,8 +299,11 @@ class Listener(
         pass
 
     def model_post_init(self, __context) -> None:
+        # executor threads don't inherit the listener thread's processor
         self.message_executor = ThreadPoolExecutor(
             max_workers=self.max_concurrent_messages,
+            initializer=set_thread_processor,
+            initargs=(self.processor,),
         )
 
 
