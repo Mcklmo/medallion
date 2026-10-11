@@ -44,6 +44,7 @@ from medallion.configure_entrypoint.resource_names import (
     topic_name,
     transformer_subscription_name,
 )
+from medallion.log import PROCESSOR_NAME_ENV_VAR
 from medallion.model.extractor import (
     FORCE_RUN_EXTRACTOR_ENV_VAR,
 )
@@ -159,6 +160,7 @@ def build_extractor_service(
     env = base_env(runtime_to_env(rt))
     env[FORCE_RUN_EXTRACTOR_ENV_VAR] = "${FORCE_RUN_EXTRACTOR}"
     env[EXTRACTOR_CLASS_ENV_VAR] = ex.class_
+    env[PROCESSOR_NAME_ENV_VAR] = ex.name
     env[MEDALLION_TOPIC_ENV] = topic_name(repo, ex.writes_to)
     env[QUEUE_TYPE_ENV_VAR] = PUB_SUB_QUEUE_TYPE
     env[LOCAL_OUTPUT_DIR_ENV_VAR] = STORE_OUTPUT_DIR
@@ -190,6 +192,7 @@ def build_transformer_service(
     rt = graph.effective_runtime(tr)
     env = base_env(runtime_to_env(rt))
     env[TRANSFORMER_CLASS_ENV_VAR] = tr.class_
+    env[PROCESSOR_NAME_ENV_VAR] = tr.name
     env["MEDALLION_SUBSCRIPTION"] = transformer_subscription_name(repo, tr.name)
     env[MEDALLION_TOPIC_ENV] = topic_name(repo, tr.writes_to)
     env["MEDALLION_DLQ_TOPIC"] = dlq_topic_name(repo, tr.reads_from)
@@ -205,6 +208,7 @@ def build_transformer_service(
 def build_store_service(graph: PipelineGraph, repo: str, st: Store) -> dict[str, Any]:
     rt = graph.effective_runtime(st)
     env = base_env(runtime_to_env(rt))
+    env[PROCESSOR_NAME_ENV_VAR] = st.name
     env["MEDALLION_SUBSCRIPTION"] = storage_subscription_name(repo, st.reads_from)
     env["MEDALLION_DLQ_TOPIC"] = dlq_topic_name(repo, st.reads_from)
     env[LISTENER_MAX_RETRIES_ENV_VAR] = must_get_env(LISTENER_MAX_RETRIES_ENV_VAR)

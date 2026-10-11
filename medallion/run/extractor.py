@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi.responses import JSONResponse
 
 
-from medallion.log import create_logger
+from medallion.log import PROCESSOR_NAME_ENV_VAR, create_logger, start_process_log
 from medallion.model.extractor import (
     ARG_PREVIOUS_STEPS,
     ORDERING_KEY_SEPARATOR,
@@ -16,8 +16,13 @@ from medallion.model.extractor import (
 )
 from medallion.queue.mock import MockQueue
 from medallion.queue.pubsub import PubSubQueue
-from medallion.resolve_classes import load_extractor_from_env
-from medallion.store.base import MEDALLION_TOPIC_ENV, BlobStore, must_get_env
+from medallion.resolve_classes import EXTRACTOR_CLASS_ENV_VAR, load_extractor_from_env
+from medallion.store.base import (
+    MEDALLION_TOPIC_ENV,
+    BlobStore,
+    get_env_or_default,
+    must_get_env,
+)
 from medallion.store.initialize_storage import (
     initialize_storage,
 )
@@ -35,6 +40,13 @@ async def lifespan(app: FastAPI):
     app.state.api_key_value = must_get_env(API_KEY_ENV)
     # Load config, init publisher client once
     logger = create_logger()
+    start_process_log(
+        [
+            get_env_or_default(
+                PROCESSOR_NAME_ENV_VAR, must_get_env(EXTRACTOR_CLASS_ENV_VAR)
+            )
+        ]
+    )
     app.state.extractor = load_extractor_from_env(logger)
     app.state.queue_producer = initialize_queue()
     app.state.logger = logger
