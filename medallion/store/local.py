@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 from io import BytesIO
 from medallion.store.base import BlobStore
 
@@ -28,8 +29,15 @@ class LocalStorage(BlobStore):
         )
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
-        with open(dest_path, "wb") as dst:
+        # write then rename, so a reader never sees a created but still empty file
+        tmp_path = os.path.join(
+            os.path.dirname(dest_path),
+            f".{os.path.basename(dest_path)}.{uuid.uuid4().hex}",
+        )
+        with open(tmp_path, "xb") as dst:
             dst.write(content.getvalue())
+
+        os.replace(tmp_path, dest_path)
 
         self.logger.debug(f"Uploaded file to {dest_path}")
 
@@ -50,6 +58,9 @@ class LocalStorage(BlobStore):
         files = []
         for root, _, filenames in os.walk(dir_path):
             for filename in filenames:
+                if filename.startswith("."):  # upload_file's files mid-write
+                    continue
+
                 relative_path = os.path.relpath(
                     os.path.join(root, filename),
                     self.output_dir,
