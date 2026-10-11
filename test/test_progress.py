@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Iterable
 
 import pytest
@@ -104,8 +105,9 @@ def test_a_local_run_logs_each_processors_counts(tmp_path, monkeypatch):
         "double": (6, 3, 0),
         "sink": (6, 0, 0),
     }
-    assert final["double"]["message"].startswith(
-        "double: 6 handled (cached=3 failed=0), "
+    # the total arrives once extraction ends, which may be before or after double's last count
+    assert re.match(
+        r"double: 6( of 6)? handled \(cached=3 failed=0\), ", final["double"]["message"]
     )
     assert final["double"]["per_second"] > 0
 
@@ -144,3 +146,37 @@ def test_show_progress_rejects_other_values(monkeypatch):
     with pytest.raises(ValueError, match="must be true or false"):
         with medallion.progress.show_progress(["items"], _LOGGER):
             pass
+
+
+class Split(BasePydanticStreamingTransformer[Item, Item], PydanticReader[Item]):
+    fan_out = True
+
+    def transform_one(self, data: Item) -> list[Item]:
+        return [data, data]
+
+
+def test_totals_reach_every_processor_up_to_the_first_fan_out(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORCE_RUN_EXTRACTOR", "true")
+
+    class Items(BaseExtractor[Item], BasePydanticProcessingStep[Item]):
+        def extract(self) -> Iterable[Item]:
+            return []
+
+    pipeline = PipeLine(
+        extractor=Items(_LOGGER),
+        transformers=[Double(_LOGGER), Split(_LOGGER), Double(_LOGGER)],
+        store=Sink(_LOGGER),
+        queues=[MockQueue() for _ in range(5)],
+        logger=_LOGGER,
+        store_output=LocalStorage(str(tmp_path), _LOGGER),
+        force_run_transformer=False,
+        processor_names=["items", "double", "split", "double-again", "sink"],
+    )
+    progress = [Progress(name, _LOGGER, None) for name in pipeline.processor_names]
+    for _ in range(10):
+        progress[0].count()
+
+    pipeline._set_totals(progress)
+
+    # split still takes one message per item; after it, a message is a part
+    assert [p.total for p in progress] == [10, 10, 10, None, None]

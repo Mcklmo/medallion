@@ -25,8 +25,17 @@ class Progress:
         self.handled = 0
         self.cached = 0
         self.failed = 0
+        self.total: int | None = None
         self._logged_at = time.monotonic()
         self._logged_handled = 0
+
+    def set_total(self, total: int) -> None:
+        with self._lock:
+            self.total = total
+
+            if self._bar is not None:
+                self._bar.total = total
+                self._bar.refresh()
 
     def count(self, cached: bool = False, failed: bool = False) -> None:
         with self._lock:
@@ -34,6 +43,7 @@ class Progress:
             self.cached += cached
             self.failed += failed
             handled, cached_count, failed_count = self.handled, self.cached, self.failed
+            total = self.total
 
             if self._bar is not None:
                 self._bar.set_postfix_str(
@@ -54,10 +64,12 @@ class Progress:
             self._logged_handled = handled
 
         # on the counting thread, so the line carries this processor
+        of_total = "" if total is None else f" of {total:,}"
         self._logger.info(
-            f"{self._processor}: {handled:,} handled (cached={cached_count:,} failed={failed_count:,}), {per_second}/s",
+            f"{self._processor}: {handled:,}{of_total} handled (cached={cached_count:,} failed={failed_count:,}), {per_second}/s",
             extra={
                 "handled": handled,
+                "total": total,
                 "cached": cached_count,
                 "failed": failed_count,
                 "per_second": per_second,

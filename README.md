@@ -222,13 +222,15 @@ Show one processor's lines with `:filter-expr :processor = 'transform-csv-to-mod
 
 `MEDALLION_SHOW_PROGRESS=true` (default `false`) counts each processor's handled messages (items for an extractor), cache hits and dead-lettered messages. A rate-limited message that is requeued is not counted.
 
+In a local pipeline run, once the extractor has finished, every processor gets the number of items extracted as its total, up to the first transformer that doesn't emit one message per message (`fan_out`, a gather or a plain transformer). Processors in their own process (docker-compose, deployed) have no total.
+
 - On a terminal: one bar per processor, log lines print above the bars.
   ```
-  csv-to-model: 1180it [00:41, 28.7it/s, cached=120 failed=2]
+  csv-to-model:  51%|█████     | 1180/2300 [00:41<00:39, 28.7it/s, cached=120 failed=2]
   ```
-- Without a terminal: every 60 s, one INFO line per processor, with `handled`, `cached`, `failed` and `per_second` as JSON fields.
+- Without a terminal: every 60 s, one INFO line per processor, with `handled`, `total`, `cached`, `failed` and `per_second` as JSON fields.
   ```
-  csv-to-model: 1,180 handled (cached=120 failed=2), 28.7/s
+  csv-to-model: 1,180 of 2,300 handled (cached=120 failed=2), 28.7/s
   ```
 
 ### Create debugging configurations for VS Code

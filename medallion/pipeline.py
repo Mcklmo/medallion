@@ -6,7 +6,7 @@ from logging import Logger
 from typing import Any, Optional
 from medallion.log import set_thread_processor
 from medallion.model.transformer import BaseTransformer
-from medallion.progress import show_progress
+from medallion.progress import Progress, show_progress
 from medallion.model.extractor import BaseExtractor
 from medallion.model.transformer import (
     TRANSFORMER_TYPES,
@@ -179,6 +179,7 @@ class PipeLine(BaseModel):
                     store=self.store_output,
                     progress=progress[0],
                 )()
+                self._set_totals(progress)
             except Exception as e:
                 extraction_error = e
             finally:
@@ -201,6 +202,24 @@ class PipeLine(BaseModel):
 
         if extraction_error is not None:
             raise extraction_error
+
+    def _set_totals(self, progress: list[Progress | None]) -> None:
+        """Gives each processor the extracted count as its total, up to and including the first
+        transformer whose messages out don't match its messages in."""
+        if progress[0] is None:
+            return
+
+        total = progress[0].handled
+        transformers = self.transformers or []
+
+        for i, p in enumerate(progress):
+            assert p is not None
+            p.set_total(total)
+
+            # progress[i] after the extractor is transformers[i - 1], or the store
+            t = transformers[i - 1] if 0 < i <= len(transformers) else None
+            if t is not None and not (isinstance(t, BaseStreamingTransformer) and not t.fan_out):
+                return
 
     def model_post_init(self, context: Any) -> None:
         processors = [self.extractor, *(self.transformers or [])]
