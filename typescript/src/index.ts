@@ -1,3 +1,9 @@
+import { cachedExtract, cachedTransform, type Serializer } from './cache.js'
+import type { Store } from './store.js'
+
+export type { Serializer } from './cache.js'
+export { MemoryStore, type Store } from './store.js'
+
 export interface Extractor<Out> {
   name: string
   /** Bump when the output for the same input changes. */
@@ -5,6 +11,7 @@ export interface Extractor<Out> {
   /** Checked against each item `extract` yields. */
   outputSchema?: StandardSchema
   extract(signal: AbortSignal): AsyncIterable<Out>
+  serializer?: Serializer<Out>
 }
 
 export interface Transformer<In, Out> {
@@ -18,6 +25,14 @@ export interface Transformer<In, Out> {
   // a property, not a method: TypeScript checks method parameters too loosely to type a chain
   /** An array is several items. */
   transform: (item: In, signal: AbortSignal) => Promise<Out | Out[]>
+  serializer?: Serializer<Out>
+  /** Identifies an input in the cache key; the default is its JSON. */
+  hashInput?(item: In): string | Promise<string>
+}
+
+export interface StepOptions {
+  /** Reuse this step's stored output instead of running it again. */
+  cache?: boolean
 }
 
 /** The part of https://standardschema.dev the runner uses; items pass through unchanged. */
@@ -39,7 +54,7 @@ interface SchemaIssue {
 }
 
 export interface Pipeline<Out> {
-  pipe<Next>(transformer: Transformer<Out, Next>): Pipeline<Next>
+  pipe<Next>(transformer: Transformer<Out, Next>, options?: StepOptions): Pipeline<Next>
   /** Resolves to the last step's items. */
   run(options?: RunOptions): Promise<Out[]>
 }
@@ -49,6 +64,8 @@ export interface RunOptions {
   signal?: AbortSignal
   /** Called each time a step finishes an item. */
   onProgress?: (progress: Progress) => void
+  /** Required if any step is cached. */
+  store?: Store
 }
 
 export interface Progress {
@@ -58,19 +75,29 @@ export interface Progress {
 }
 
 /** Starts a pipeline at an extractor; add transformers with `pipe`. */
-export function pipeline<Out>(extractor: Extractor<Out>): Pipeline<Out> {
-  return chain(extractor, [])
+export function pipeline<Out>(
+  extractor: Extractor<Out>,
+  options: StepOptions = {},
+): Pipeline<Out> {
+  return chain(extractor, [], [options])
 }
 
 function chain<Out>(
   extractor: Extractor<unknown>,
   transformers: Transformer<any, unknown>[],
+  // the extractor's, then one per transformer
+  stepOptions: StepOptions[],
 ): Pipeline<Out> {
   return {
-    pipe: <Next>(transformer: Transformer<Out, Next>) =>
-      chain<Next>(extractor, [...transformers, transformer]),
+    pipe: <Next>(transformer: Transformer<Out, Next>, options: StepOptions = {}) =>
+      chain<Next>(extractor, [...transformers, transformer], [...stepOptions, options]),
 
-    async run({ signal = new AbortController().signal, onProgress }: RunOptions = {}) {
+    async run({ signal = new AbortController().signal, onProgress, store }: RunOptions = {}) {
+      const stores = [extractor, ...transformers].map(({ name }, i) => {
+        if (!stepOptions[i]?.cache) return undefined
+        if (!store) throw new Error(`step "${name}" is cached, but run got no store`)
+        return store
+      })
       const results: Out[] = []
       // by position, as two steps may share a name; 0 is the extractor
       const finished: number[] = []
@@ -90,12 +117,10 @@ function chain<Out>(
         let outputs: unknown[]
         try {
           await check(step.inputSchema, item, 'input')
-          signal.throwIfAborted()
-          const output: unknown = await step.transform(item, signal)
-          outputs = Array.isArray(output) ? output : [output]
-          for (const next of outputs) {
-            await check(step.outputSchema, next, 'output')
-          }
+          const cache = stores[index + 1]
+          outputs = cache
+            ? await cachedTransform(cache, step, item, signal, () => transform(step, item, signal))
+            : await transform(step, item, signal)
         } catch (error) {
           throw stepError(step.name, error)
         }
@@ -107,7 +132,7 @@ function chain<Out>(
 
       try {
         signal.throwIfAborted()
-        for await (const item of extract(extractor, signal)) {
+        for await (const item of extract(extractor, signal, stores[0])) {
           report(extractor, 0)
           await push(item, 0)
         }
@@ -123,14 +148,29 @@ function chain<Out>(
 }
 
 // errors from the loop consuming this generator never reach its catch
-async function* extract<Out>(step: Extractor<Out>, signal: AbortSignal) {
+async function* extract<Out>(step: Extractor<Out>, signal: AbortSignal, cache?: Store) {
   try {
-    for await (const item of step.extract(signal)) {
-      await check(step.outputSchema, item, 'output')
-      yield item
-    }
+    const items = checked(step, signal)
+    yield* cache ? cachedExtract(cache, step, items, signal) : items
   } catch (error) {
     throw stepError(step.name, error)
+  }
+}
+
+async function transform<In, Out>(step: Transformer<In, Out>, item: In, signal: AbortSignal) {
+  signal.throwIfAborted()
+  const output = await step.transform(item, signal)
+  const outputs = Array.isArray(output) ? output : [output]
+  for (const next of outputs) {
+    await check(step.outputSchema, next, 'output')
+  }
+  return outputs
+}
+
+async function* checked<Out>(step: Extractor<Out>, signal: AbortSignal) {
+  for await (const item of step.extract(signal)) {
+    await check(step.outputSchema, item, 'output')
+    yield item
   }
 }
 
