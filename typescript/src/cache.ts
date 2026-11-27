@@ -27,6 +27,8 @@ function toJson(value: unknown): string {
 export async function* cachedExtract<Out>(
   store: Store,
   step: Extractor<Out>,
+  // lazy: iterating it is what runs the extractor
+  items: AsyncIterable<Out>,
   signal: AbortSignal,
 ): AsyncIterable<Out> {
   const key = cacheKey(step, 'extract')
@@ -35,7 +37,7 @@ export async function* cachedExtract<Out>(
   if (latest === undefined) {
     latest = next
     // all of it is stored before the first item goes on, so a later failure loses none
-    await write(store, `${key}/${latest}`, step.extract(signal), serializer, signal)
+    await write(store, `${key}/${latest}`, items, serializer, signal)
   }
   yield* read(store, `${key}/${latest}`, serializer)
 }
@@ -45,7 +47,8 @@ export async function cachedTransform<In, Out>(
   step: Transformer<In, Out>,
   input: In,
   signal: AbortSignal,
-): Promise<Out | Out[]> {
+  run: () => Promise<Out[]>,
+): Promise<Out[]> {
   const identity = step.hashInput ? await step.hashInput(input) : toJson(input)
   const key = cacheKey(step, await sha256(identity))
   const serializer: Serializer<Out> = step.serializer ?? json
@@ -57,9 +60,8 @@ export async function cachedTransform<In, Out>(
     return items
   }
 
-  const output = await step.transform(input, signal)
-  const items = Array.isArray(output) ? output : [output]
-  await write(store, `${key}/${next}`, items, serializer, signal)
+  const output = await run()
+  await write(store, `${key}/${next}`, output, serializer, signal)
   return output
 }
 
@@ -91,6 +93,7 @@ async function write<T>(
 ) {
   let count = 0
   for await (const item of items) {
+    signal.throwIfAborted()
     await store.upload(`${folder}/${count++}`, await serializer.serialize(item))
   }
   // a cancelled step may return early with partial output
