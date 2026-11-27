@@ -21,61 +21,123 @@ function toJson(value: unknown): string {
   return text
 }
 
+/** One stored output of a step: the items it gave for one input. */
+export interface OutputVersion {
+  step: string
+  stepVersion: string
+  /** `extract`, or the input's hash. */
+  key: string
+  /** Counts up from 1; the highest is the latest. */
+  number: number
+}
+
+/** How a run uses one cached step. */
+export interface Cache {
+  store: Store
+  /** Run the step even if it has a stored output. */
+  force: boolean
+  used(output: OutputVersion): void
+}
+
 // An output version is the folder <key>/<number>: one file per item, then `count`.
 // Without `count` the write never finished and the version does not exist.
 
-export async function* cachedExtract<Out>(
+/** Every stored output of this step at this version, by key, then number. */
+export async function listVersions(
   store: Store,
+  step: { name: string; version: string },
+): Promise<OutputVersion[]> {
+  const prefix = cacheFolder(step, '')
+  const found: OutputVersion[] = []
+  for (const path of await store.list(prefix)) {
+    const [key, number, file] = path.slice(prefix.length).split('/')
+    if (file === 'count') found.push(outputVersion(step, key!, Number(number)))
+  }
+  return found.sort((a, b) => a.key.localeCompare(b.key) || a.number - b.number)
+}
+
+/** Writes a copy of `output` as the latest version for its key, and returns that copy. */
+export async function restore(store: Store, output: OutputVersion): Promise<OutputVersion> {
+  const step = { name: output.step, version: output.stepVersion }
+  const folder = cacheFolder(step, output.key)
+  const from = `${folder}/${output.number}`
+  if (!(await store.exists(`${from}/count`))) {
+    throw new Error(`step "${step.name}" has no output version ${output.number} for that key`)
+  }
+  const { next } = await versions(store, folder)
+  const count = await store.download(`${from}/count`)
+  for (let i = 0; i < Number(decode(count)); i++) {
+    await store.upload(`${folder}/${next}/${i}`, await store.download(`${from}/${i}`))
+  }
+  await store.upload(`${folder}/${next}/count`, count)
+  return outputVersion(step, output.key, next)
+}
+
+export async function* cachedExtract<Out>(
+  { store, force, used }: Cache,
   step: Extractor<Out>,
   // lazy: iterating it is what runs the extractor
   items: AsyncIterable<Out>,
   signal: AbortSignal,
 ): AsyncIterable<Out> {
-  const key = cacheKey(step, 'extract')
+  const key = 'extract'
+  const folder = cacheFolder(step, key)
   const serializer: Serializer<Out> = step.serializer ?? json
-  let { latest, next } = await versions(store, key)
-  if (latest === undefined) {
+  let { latest, next } = await versions(store, folder)
+  if (force || latest === undefined) {
     latest = next
     // all of it is stored before the first item goes on, so a later failure loses none
-    await write(store, `${key}/${latest}`, items, serializer, signal)
+    await write(store, `${folder}/${latest}`, items, serializer, signal)
   }
-  yield* read(store, `${key}/${latest}`, serializer)
+  used(outputVersion(step, key, latest))
+  yield* read(store, `${folder}/${latest}`, serializer)
 }
 
 export async function cachedTransform<In, Out>(
-  store: Store,
+  { store, force, used }: Cache,
   step: Transformer<In, Out>,
   input: In,
   signal: AbortSignal,
   run: () => Promise<Out[]>,
 ): Promise<Out[]> {
   const identity = step.hashInput ? await step.hashInput(input) : toJson(input)
-  const key = cacheKey(step, await sha256(identity))
+  const key = await sha256(identity)
+  const folder = cacheFolder(step, key)
   const serializer: Serializer<Out> = step.serializer ?? json
-  const { latest, next } = await versions(store, key)
+  const { latest, next } = await versions(store, folder)
 
-  if (latest !== undefined) {
+  if (!force && latest !== undefined) {
     const items: Out[] = []
-    for await (const item of read(store, `${key}/${latest}`, serializer)) items.push(item)
+    for await (const item of read(store, `${folder}/${latest}`, serializer)) items.push(item)
+    used(outputVersion(step, key, latest))
     return items
   }
 
   const output = await run()
-  await write(store, `${key}/${next}`, output, serializer, signal)
+  await write(store, `${folder}/${next}`, output, serializer, signal)
+  used(outputVersion(step, key, next))
   return output
 }
 
-function cacheKey(step: { name: string; version: string }, input: string) {
+function cacheFolder(step: { name: string; version: string }, key: string) {
   const [name, version] = [step.name, step.version].map(encodeURIComponent)
-  return `cache/${name}/${version}/${input}`
+  return `cache/${name}/${version}/${key}`
 }
 
-async function versions(store: Store, key: string) {
+function outputVersion(
+  step: { name: string; version: string },
+  key: string,
+  number: number,
+): OutputVersion {
+  return { step: step.name, stepVersion: step.version, key, number }
+}
+
+async function versions(store: Store, folder: string) {
   let latest: number | undefined
   let last = 0
-  for (const path of await store.list(`${key}/`)) {
-    const [folder, file] = path.slice(key.length + 1).split('/')
-    const number = Number(folder)
+  for (const path of await store.list(`${folder}/`)) {
+    const [name, file] = path.slice(folder.length + 1).split('/')
+    const number = Number(name)
     last = Math.max(last, number)
     if (file === 'count') latest = Math.max(latest ?? 0, number)
   }
