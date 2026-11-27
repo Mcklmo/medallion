@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  listRuns,
+  listVersions,
   MemoryStore,
   pipeline,
+  restore,
   type Extractor,
   type Serializer,
   type StandardSchema,
@@ -367,5 +370,131 @@ test('a host app runs a pipeline', async () => {
     (error) => error === boom,
   )
   assert.deepEqual(await feeding.run({ store }), [1, 2])
+  }
+
+  {
+  // each real call answers differently, so versions can be told apart
+  let call = 0
+  const calls: string[] = []
+  const subjects: Extractor<string> = {
+    name: 'subjects',
+    version: '1',
+    async *extract() {
+      calls.push('subjects')
+      yield 'sun'
+    },
+  }
+  const draft: Transformer<string, string> = {
+    name: 'draft',
+    version: '1',
+    async transform(subject) {
+      calls.push('draft')
+      return `${subject} ${++call}`
+    },
+  }
+  let offline = false
+  const polish: Transformer<string, string> = {
+    name: 'polish',
+    version: '1',
+    async transform(text) {
+      if (offline) throw boom
+      calls.push('polish')
+      return `${text}!`
+    },
+  }
+  const store = new MemoryStore()
+  const writing = pipeline(subjects, { cache: true })
+    .pipe(draft, { cache: true })
+    .pipe(polish, { cache: true })
+  assert.deepEqual(await writing.run({ store }), ['sun 1!'])
+
+  // force from a step: earlier steps use their cache, it and all after it run
+  calls.length = 0
+  assert.deepEqual(await writing.run({ store, forceFrom: 'draft' }), ['sun 2!'])
+  assert.deepEqual(calls, ['draft', 'polish'])
+  calls.length = 0
+  assert.deepEqual(await writing.run({ store }), ['sun 2!'])
+  assert.deepEqual(calls, [])
+
+  // a cached extractor can be forced too
+  assert.deepEqual(await writing.run({ store, forceFrom: 'subjects' }), ['sun 3!'])
+  assert.deepEqual(calls, ['subjects', 'draft', 'polish'])
+
+  await assert.rejects(writing.run({ store, forceFrom: 'drafts' }), {
+    message: 'no step "drafts" to force from',
+  })
+
+  // history: every run that got a store, oldest first
+  const runs = await listRuns(store)
+  assert.deepEqual(
+    runs.map(({ status }) => status),
+    ['succeeded', 'succeeded', 'succeeded', 'succeeded'],
+  )
+  const [first, second, cached] = runs.map(({ outputs }) =>
+    outputs.map(({ step, number }) => `${step} ${number}`),
+  )
+  assert.deepEqual(first, ['subjects 1', 'draft 1', 'polish 1'])
+  // a forced step with a new input starts that input's versions at 1
+  assert.deepEqual(second, ['subjects 1', 'draft 2', 'polish 1'])
+  assert.deepEqual(cached, second)
+  for (const { startedAt, finishedAt, error } of runs) {
+    assert.ok(Date.parse(startedAt) <= Date.parse(finishedAt))
+    assert.equal(error, undefined)
+  }
+
+  // a failed run records its error and what it finished
+  offline = true
+  await assert.rejects(writing.run({ store, forceFrom: 'draft' }), { cause: boom })
+  const failed = (await listRuns(store)).at(-1)!
+  assert.equal(failed.status, 'failed')
+  assert.equal(failed.error, 'step "polish" failed: no network')
+  assert.deepEqual(
+    failed.outputs.map(({ step, number }) => `${step} ${number}`),
+    ['subjects 2', 'draft 4'],
+  )
+  // and the next run reuses that
+  offline = false
+  calls.length = 0
+  assert.deepEqual(await writing.run({ store }), ['sun 4!'])
+  assert.deepEqual(calls, ['polish'])
+
+  const leave = new AbortController()
+  leave.abort(new Error('user left'))
+  await assert.rejects(writing.run({ store, signal: leave.signal }))
+  const left = (await listRuns(store)).at(-1)!
+  assert.deepEqual([left.status, left.error, left.outputs], ['cancelled', 'user left', []])
+
+  // a history that cannot be written does not hide why the run failed
+  class ReadOnly extends MemoryStore {
+    override async upload(): Promise<void> {
+      throw new Error('disk full')
+    }
+  }
+  await assert.rejects(pipeline(subjects).run({ store: new ReadOnly() }), {
+    message: 'disk full',
+  })
+  await assert.rejects(pipeline(download).run({ store: new ReadOnly() }), { cause: boom })
+
+  // restore: an earlier version is the latest again, without running anything
+  const drafted = await listVersions(store, draft)
+  assert.deepEqual(
+    drafted.map(({ number }) => number),
+    [1, 2, 3, 4],
+  )
+  assert.deepEqual(drafted[0], (await listRuns(store))[0]!.outputs[1])
+  calls.length = 0
+  const restored = await restore(store, drafted[0]!)
+  assert.deepEqual(restored, { ...drafted[0], number: 5 })
+  assert.deepEqual(calls, [])
+  assert.deepEqual(await listVersions(store, draft), [...drafted, restored])
+  assert.deepEqual(await writing.run({ store }), ['sun 1!'])
+  assert.deepEqual(calls, [])
+  assert.deepEqual((await listRuns(store)).at(-1)!.outputs[1], restored)
+
+  await assert.rejects(restore(store, { ...restored, number: 9 }), {
+    message: 'step "draft" has no output version 9 for that key',
+  })
+  // a version of one step is not another's
+  assert.deepEqual(await listVersions(store, { ...draft, version: '2' }), [])
   }
 })

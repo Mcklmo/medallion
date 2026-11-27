@@ -1,7 +1,15 @@
-import { cachedExtract, cachedTransform, type Serializer } from './cache.js'
+import {
+  cachedExtract,
+  cachedTransform,
+  type Cache,
+  type OutputVersion,
+  type Serializer,
+} from './cache.js'
+import { recorded } from './history.js'
 import type { Store } from './store.js'
 
-export type { Serializer } from './cache.js'
+export { listVersions, restore, type OutputVersion, type Serializer } from './cache.js'
+export { listRuns, type Run } from './history.js'
 export { MemoryStore, type Store } from './store.js'
 
 export interface Extractor<Out> {
@@ -64,8 +72,10 @@ export interface RunOptions {
   signal?: AbortSignal
   /** Called each time a step finishes an item. */
   onProgress?: (progress: Progress) => void
-  /** Required if any step is cached. */
+  /** Records the run; required if any step is cached. */
   store?: Store
+  /** A step's name: it and all steps after it run, even if cached. */
+  forceFrom?: string
 }
 
 export interface Progress {
@@ -92,11 +102,21 @@ function chain<Out>(
     pipe: <Next>(transformer: Transformer<Out, Next>, options: StepOptions = {}) =>
       chain<Next>(extractor, [...transformers, transformer], [...stepOptions, options]),
 
-    async run({ signal = new AbortController().signal, onProgress, store }: RunOptions = {}) {
-      const stores = [extractor, ...transformers].map(({ name }, i) => {
+    async run({
+      signal = new AbortController().signal,
+      onProgress,
+      store,
+      forceFrom,
+    }: RunOptions = {}) {
+      const steps = [extractor, ...transformers]
+      const forced =
+        forceFrom === undefined ? steps.length : steps.findIndex(({ name }) => name === forceFrom)
+      if (forced < 0) throw new Error(`no step "${forceFrom}" to force from`)
+      const used: OutputVersion[] = []
+      const caches = steps.map(({ name }, i): Cache | undefined => {
         if (!stepOptions[i]?.cache) return undefined
         if (!store) throw new Error(`step "${name}" is cached, but run got no store`)
-        return store
+        return { store, force: i >= forced, used: (output) => used.push(output) }
       })
       const results: Out[] = []
       // by position, as two steps may share a name; 0 is the extractor
@@ -117,7 +137,7 @@ function chain<Out>(
         let outputs: unknown[]
         try {
           await check(step.inputSchema, item, 'input')
-          const cache = stores[index + 1]
+          const cache = caches[index + 1]
           outputs = cache
             ? await cachedTransform(cache, step, item, signal, () => transform(step, item, signal))
             : await transform(step, item, signal)
@@ -130,25 +150,29 @@ function chain<Out>(
         }
       }
 
-      try {
-        signal.throwIfAborted()
-        for await (const item of extract(extractor, signal, stores[0])) {
-          report(extractor, 0)
-          await push(item, 0)
+      async function execute() {
+        try {
+          signal.throwIfAborted()
+          for await (const item of extract(extractor, signal, caches[0])) {
+            report(extractor, 0)
+            await push(item, 0)
+          }
+          signal.throwIfAborted()
+        } catch (error) {
+          // a cancelled run is no step's failure, whatever the step threw
+          signal.throwIfAborted()
+          throw error
         }
-        signal.throwIfAborted()
-      } catch (error) {
-        // a cancelled run is no step's failure, whatever the step threw
-        signal.throwIfAborted()
-        throw error
+        return results
       }
-      return results
+
+      return store ? recorded(store, signal, used, execute) : execute()
     },
   }
 }
 
 // errors from the loop consuming this generator never reach its catch
-async function* extract<Out>(step: Extractor<Out>, signal: AbortSignal, cache?: Store) {
+async function* extract<Out>(step: Extractor<Out>, signal: AbortSignal, cache?: Cache) {
   try {
     const items = checked(step, signal)
     yield* cache ? cachedExtract(cache, step, items, signal) : items

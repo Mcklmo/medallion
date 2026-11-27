@@ -1,6 +1,6 @@
 # medallion-pipeline
 
-Runs an extractor and transformers in order, inside your app. Works in Node and browser WebViews, from TypeScript or JavaScript.
+Runs an extractor and transformers in order, inside your app, with a cache and run history. Works in Node and browser WebViews, from TypeScript or JavaScript.
 
 ```sh
 npm install medallion-pipeline
@@ -92,6 +92,42 @@ A human review is two runs:
 const approved = await review(drafts) // your UI; returns an extractor of the approved drafts
 await pipeline(approved).pipe(publish).run()
 ```
+
+### Force, history and restore
+
+Force a step after changing something the cache key does not see: earlier steps use their cache, that step (a cached extractor too) and all after it run. If two steps share the name, the first counts.
+
+```ts
+await drafting.run({ store, forceFrom: 'write' })
+```
+
+Every run that gets a store is recorded when it ends. Each cache write adds an output version; old ones stay.
+
+```ts
+import { listRuns, listVersions, restore } from 'medallion-pipeline'
+
+const runs = await listRuns(store) // oldest first
+// [{ id, startedAt, finishedAt, status, error?, outputs }]
+// status: 'succeeded' | 'failed' | 'cancelled'
+
+const versions = await listVersions(store, write)
+// [{ step: 'write', stepVersion: '1', key, number }]
+```
+
+`key` stands for one input; the highest `number` of a key is its latest. A run's `outputs` lists the version each cached step used or wrote, one per input.
+
+`restore` writes a copy of an earlier version as the latest, without running anything, and returns the copy:
+
+```ts
+await restore(store, versions[0])
+```
+
+On the next run, later steps look up their output for the restored items.
+
+Nothing is deleted for you. Delete with your store:
+
+- a run: `runs/<id>`
+- an output version: the files under `cache/<name>/<version>/<key>/<number>/`, `count` first (name and version URI-encoded). Deleting a key's highest number frees it for reuse, so older run records then point at the new output.
 
 ## Develop
 
