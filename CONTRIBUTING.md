@@ -53,6 +53,54 @@ Verify on <https://pypi.org/project/medallion-pipeline/>, then cut the real tag.
 
 For reference, if the trusted publisher ever needs to be reconfigured: <https://pypi.org/manage/account/publishing/> → pending publisher with owner `Mcklmo`, repo `medallion`, workflow `release.yml`, environment `pypi`.
 
+## Releasing the TypeScript package
+
+[`typescript/`](typescript/) is published to npm as `medallion-pipeline`. It has its own version in [`typescript/package.json`](typescript/package.json) and is tagged `ts-vX.Y.Z`. Both paths below run `npm publish`, which first rebuilds and runs the end-to-end test; a failure blocks the release. npm rejects re-uploads, so fix a broken release with a new version.
+
+Bump the version, commit and push to `main`:
+
+```bash
+cd typescript
+npm version patch --no-git-tag-version   # or minor, major
+```
+
+Then use one of the two paths.
+
+### Through GitHub Actions
+
+Needs the trusted publisher (see below). [`release-typescript.yml`](.github/workflows/release-typescript.yml) fails if the tag doesn't match `package.json`, and skips publishing a version already on npm.
+
+```bash
+TAG=ts-v0.1.1
+git tag $TAG
+git push origin $TAG
+```
+
+### By hand
+
+From a clean checkout of the pushed commit:
+
+```bash
+cd typescript
+npm ci
+npm login
+npm publish
+```
+
+Then tag and push as above. The workflow sees the version on npm and skips it.
+
+### First publish and trusted publisher (one-time)
+
+The package must exist on npm before a trusted publisher can be set up, so publish `0.1.0` by hand, without a version bump. Then, on npmjs.com under the package's Settings → Trusted publishing → GitHub Actions:
+
+- Organization or user: `Mcklmo`
+- Repository: `medallion`
+- Workflow filename: `release-typescript.yml`
+- Environment name: leave empty
+- Allowed actions: allow `npm publish` (by default only `npm stage publish` is allowed)
+
+A new trusted publisher expires unless it publishes successfully within 2 days, so set it up right before the first release through GitHub Actions. After that release works, set Settings → Publishing access to "Require two-factor authentication and disallow tokens".
+
 ## Setup for Google Cloud project
 
 - [ ] Service account roles: Pubsub Admin, Artifact Registry Admin, Cloud Run Admin, Storage Object Admin, Cloud Scheduler Admin, Secret Manager Secret Accessor
@@ -85,3 +133,12 @@ docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 ```
 
 Once all containers are ready, run the debugging configuration `Attach to docker service`
+
+## TypeScript package
+
+In `typescript/`, with Node 22.18 or later:
+
+```sh
+npm ci
+npm test
+```
