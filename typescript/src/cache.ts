@@ -1,5 +1,6 @@
 import type { Extractor, Transformer } from './index.js'
 import type { Store } from './store.js'
+import { decode, encode, toHex } from './util.js'
 
 /** How a cached step's output items become bytes and back; the default is JSON. */
 export interface Serializer<T> {
@@ -7,18 +8,27 @@ export interface Serializer<T> {
   deserialize(content: Uint8Array): T | Promise<T>
 }
 
-const encode = (text: string) => new TextEncoder().encode(text)
-const decode = (content: Uint8Array) => new TextDecoder().decode(content)
-
 const json: Serializer<any> = {
   serialize: (item) => encode(toJson(item)),
   deserialize: (content) => JSON.parse(decode(content)),
 }
 
 function toJson(value: unknown): string {
-  const text: string | undefined = JSON.stringify(value)
+  const text: string | undefined = JSON.stringify(value, (_, part) => {
+    // they would all become {}, so different inputs would share a cache key
+    if (part instanceof Map || part instanceof Set) {
+      throw new Error(`${part.constructor.name} has no JSON form`)
+    }
+    return part
+  })
   if (text === undefined) throw new Error(`${typeof value} has no JSON form`)
   return text
+}
+
+/** What a step's cached output is filed under. */
+export interface StepId {
+  name: string
+  version: string
 }
 
 /** One stored output of a step: the items it gave for one input. */
@@ -31,27 +41,25 @@ export interface OutputVersion {
   number: number
 }
 
-/** How a run uses one cached step. */
 export interface Cache {
   store: Store
   /** Run the step even if it has a stored output. */
   force: boolean
-  used(output: OutputVersion): void
+  recordUse(output: OutputVersion): void
 }
 
 // An output version is the folder <key>/<number>: one file per item, then `count`.
 // Without `count` the write never finished and the version does not exist.
 
 /** Every stored output of this step at this version, by key, then number. */
-export async function listVersions(
-  store: Store,
-  step: { name: string; version: string },
-): Promise<OutputVersion[]> {
+export async function listVersions(store: Store, step: StepId): Promise<OutputVersion[]> {
   const prefix = cacheFolder(step, '')
   const found: OutputVersion[] = []
   for (const path of await store.list(prefix)) {
     const [key, number, file] = path.slice(prefix.length).split('/')
-    if (file === 'count') found.push(outputVersion(step, key!, Number(number)))
+    if (file === 'count' && isVersionNumber(number!)) {
+      found.push(outputVersion(step, key!, Number(number)))
+    }
   }
   return found.sort((a, b) => a.key.localeCompare(b.key) || a.number - b.number)
 }
@@ -65,16 +73,16 @@ export async function restore(store: Store, output: OutputVersion): Promise<Outp
     throw new Error(`step "${step.name}" has no output version ${output.number} for that key`)
   }
   const { next } = await versions(store, folder)
-  const count = await store.download(`${from}/count`)
-  for (let i = 0; i < Number(decode(count)); i++) {
-    await store.upload(`${folder}/${next}/${i}`, await store.download(`${from}/${i}`))
+  let count = 0
+  for await (const content of contents(store, from)) {
+    await store.upload(`${folder}/${next}/${count++}`, content)
   }
-  await store.upload(`${folder}/${next}/count`, count)
+  await store.upload(`${folder}/${next}/count`, encode(String(count)))
   return outputVersion(step, output.key, next)
 }
 
 export async function* cachedExtract<Out>(
-  { store, force, used }: Cache,
+  { store, force, recordUse }: Cache,
   step: Extractor<Out>,
   // lazy: iterating it is what runs the extractor
   items: AsyncIterable<Out>,
@@ -89,12 +97,12 @@ export async function* cachedExtract<Out>(
     // all of it is stored before the first item goes on, so a later failure loses none
     await write(store, `${folder}/${latest}`, items, serializer, signal)
   }
-  used(outputVersion(step, key, latest))
+  recordUse(outputVersion(step, key, latest))
   yield* read(store, `${folder}/${latest}`, serializer)
 }
 
 export async function cachedTransform<In, Out>(
-  { store, force, used }: Cache,
+  { store, force, recordUse }: Cache,
   step: Transformer<In, Out>,
   input: In,
   signal: AbortSignal,
@@ -106,37 +114,41 @@ export async function cachedTransform<In, Out>(
   const serializer: Serializer<Out> = step.serializer ?? json
   const { latest, next } = await versions(store, folder)
 
-  if (!force && latest !== undefined) {
-    const items: Out[] = []
-    for await (const item of read(store, `${folder}/${latest}`, serializer)) items.push(item)
-    used(outputVersion(step, key, latest))
-    return items
+  let number = latest
+  if (force || number === undefined) {
+    number = next
+    await write(store, `${folder}/${number}`, await run(), serializer, signal)
   }
-
-  const output = await run()
-  await write(store, `${folder}/${next}`, output, serializer, signal)
-  used(outputVersion(step, key, next))
-  return output
+  recordUse(outputVersion(step, key, number))
+  // read back even when fresh, so a run gets the same items with or without a cache hit
+  const items: Out[] = []
+  for await (const item of read(store, `${folder}/${number}`, serializer)) items.push(item)
+  return items
 }
 
-function cacheFolder(step: { name: string; version: string }, key: string) {
-  const [name, version] = [step.name, step.version].map(encodeURIComponent)
+function cacheFolder(step: StepId, key: string) {
+  const [name, version] = [step.name, step.version].map((part) => {
+    if (part === '.' || part === '..') {
+      throw new Error(`a cached step's name or version cannot be "${part}"`)
+    }
+    return encodeURIComponent(part)
+  })
   return `cache/${name}/${version}/${key}`
 }
 
-function outputVersion(
-  step: { name: string; version: string },
-  key: string,
-  number: number,
-): OutputVersion {
+function outputVersion(step: StepId, key: string, number: number): OutputVersion {
   return { step: step.name, stepVersion: step.version, key, number }
 }
+
+// anything else, such as .DS_Store, is not ours
+const isVersionNumber = (name: string) => /^\d+$/.test(name)
 
 async function versions(store: Store, folder: string) {
   let latest: number | undefined
   let last = 0
   for (const path of await store.list(`${folder}/`)) {
     const [name, file] = path.slice(folder.length + 1).split('/')
+    if (!isVersionNumber(name!)) continue
     const number = Number(name)
     last = Math.max(last, number)
     if (file === 'count') latest = Math.max(latest ?? 0, number)
@@ -164,13 +176,19 @@ async function write<T>(
 }
 
 async function* read<T>(store: Store, folder: string, serializer: Serializer<T>) {
+  for await (const content of contents(store, folder)) {
+    yield await serializer.deserialize(content)
+  }
+}
+
+async function* contents(store: Store, folder: string) {
   const count = Number(decode(await store.download(`${folder}/count`)))
   for (let i = 0; i < count; i++) {
-    yield await serializer.deserialize(await store.download(`${folder}/${i}`))
+    yield await store.download(`${folder}/${i}`)
   }
 }
 
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', encode(text))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+  return toHex(new Uint8Array(digest))
 }

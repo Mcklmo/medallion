@@ -84,7 +84,10 @@ const drafts = await drafting.run({ store })
 
 - The key is the step's `name`, `version` and a hash of the input. Configuration, such as a model name, is not part of it.
 - A cached extractor replays its latest output. It finishes extracting before the first item goes on.
-- Outputs and inputs are stored and hashed as JSON. For anything else (bytes, images, `Map`), give the step a `serializer: { serialize, deserialize }` for its output items, and a transformer a `hashInput(item)` returning a string that identifies the input.
+- Outputs and inputs are stored and hashed as JSON. For anything else (bytes, images, `Map`), give the step a `serializer: { serialize, deserialize }` for its output items, and a transformer a `hashInput(item)` returning a string that identifies the input. Hashing a `Map` or `Set` as JSON throws.
+- A cached step's items always come back through the serializer, also on the run that made them, and are checked against `outputSchema` again.
+- A cached step cannot have `.` or `..` as its `name` or `version`.
+- Caching a transformer needs `crypto.subtle`, which browsers only provide in secure contexts (such as `https://` or `localhost`), not on a plain `http://` page.
 
 A human review is two runs:
 
@@ -128,12 +131,3 @@ Nothing is deleted for you. Delete with your store:
 
 - a run: `runs/<id>`
 - an output version: the files under `cache/<name>/<version>/<key>/<number>/`, `count` first (name and version URI-encoded). Deleting a key's highest number frees it for reuse, so older run records then point at the new output.
-
-## Develop
-
-Needs Node 22.18 or later.
-
-```sh
-npm ci
-npm test
-```

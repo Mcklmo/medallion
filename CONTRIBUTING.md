@@ -133,3 +133,12 @@ docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 ```
 
 Once all containers are ready, run the debugging configuration `Attach to docker service`
+
+## TypeScript package
+
+In `typescript/`, with Node 22.18 or later:
+
+```sh
+npm ci
+npm test
+```
